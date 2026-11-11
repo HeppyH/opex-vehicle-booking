@@ -1,15 +1,44 @@
+# OPEX VBM API — Cloudflare Worker (personal testing deployment)
+#
+# Personal testing topology (no company domains, no custom domains):
+#   Frontend : GitHub Pages  https://heppyh.github.io/opex-vehicle-booking/
+#   API      : this Worker   https://opex-vbm-api.<account-subdomain>.workers.dev
+#   Database : Neon PostgreSQL (project opex-vbm-dev, database opex_vbm_dev)
+#   Pooling  : Cloudflare Hyperdrive config opex-vbm-dev-hyperdrive (binding DB)
+#
+# Nothing in this file is a secret. Do NOT put a PostgreSQL URL, password,
+# MyGeotab credential or session ID here. See docs/DEPLOYMENT.md.
+
 name = "opex-vbm-api"
 main = "src/index.ts"
 compatibility_date = "2025-01-15"
 compatibility_flags = ["nodejs_compat"]
 
+# Serve on https://opex-vbm-api.<account-subdomain>.workers.dev
+workers_dev = true
+
 [vars]
-APP_ENV = "development"
-ALLOWED_ORIGIN = "https://vbm.opexcg.com"
+# Any value other than "development" hides internal error messages from API
+# responses. For `wrangler dev`, set APP_ENV=development in apps/api/.dev.vars.
+APP_ENV = "personal-test"
+
+# Exact browser origin of the frontend: scheme + lowercase host, no path and no
+# trailing slash. This is an origin, not the full Pages URL.
+ALLOWED_ORIGIN = "https://heppyh.github.io"
+
+# MyGeotab database the API accepts sessions for. The frontend can never override it.
 GEOTAB_DATABASE = "opex_trial"
 
-# Configure a Hyperdrive binding named DB in the Cloudflare dashboard / Wrangler.
-# Do not put a PostgreSQL URL or credentials in this file.
+# IDENTITY_ADAPTER_CONFIGURED is intentionally NOT defined here. While it is
+# unset (or anything other than "true") every protected endpoint fails closed.
+# Do not enable it until the MyGeotab session verification has been validated
+# against opex_trial (docs/DEPLOYMENT.md, section 9).
+
+# Hyperdrive binding. Uncomment ONLY after the Hyperdrive configuration exists:
+#   npx wrangler hyperdrive create opex-vbm-dev-hyperdrive --connection-string="<Neon DIRECT connection string>"
+# then paste the ID that command prints. The binding name must stay "DB"
+# (src/env.ts and src/db.ts read env.DB.connectionString).
+#
 # [[hyperdrive]]
 # binding = "DB"
 # id = "REPLACE_WITH_HYPERDRIVE_CONFIG_ID"

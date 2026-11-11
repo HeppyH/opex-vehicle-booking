@@ -213,7 +213,7 @@ CREATE INDEX identity_mappings_geotab_idx ON identity_mappings(geotab_user_id);
 - **Tenant enforcement:** authenticated principal's `geotab_user_id` must resolve to an active `identity_mappings` row with `database_name = 'opex_trial'` and `is_active = true`.
 - **Role-based access:** `requireRole(...)` with roles `EMPLOYEE`, `APPROVER`, `GA`, `MANAGEMENT`, `ADMIN` enforced server-side on every mutation.
 - **Credentials:** MyGeotab API credentials and session tokens stored in Cloudflare secrets / Hyperdrive, never logged, never committed. `wrangler.toml` contains no database URLs or passwords.
-- **CORS:** exact `ALLOWED_ORIGIN` allowlist (`https://vbm.opexcg.com`); CSP and security headers reviewed before production.
+- **CORS:** exact `ALLOWED_ORIGIN` allowlist (`https://heppyh.github.io`); CSP and security headers reviewed before production.
 
 ---
 

@@ -1,9 +1,10 @@
 # OPEX Vehicle Booking Management — MyGeotab Add-In starter
 
 **Status:** implementation scaffold, not a production-ready deployment.  
-**Target hosting:** Cloudflare Pages (frontend) + Cloudflare Worker (API).  
-**Database:** PostgreSQL, recommended through Cloudflare Hyperdrive or another approved private connection.  
-**Proposed Add-In domain:** `https://vbm.opexcg.com`  
+**Target hosting:** GitHub Pages (frontend) + Cloudflare Worker on `workers.dev` (API) + Neon PostgreSQL via Cloudflare Hyperdrive.  
+**Proposed Add-In domain:** `https://heppyh.github.io/opex-vehicle-booking/`  
+**Frontend URL:** `https://heppyh.github.io/opex-vehicle-booking/`  
+**Deployment guide:** [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)  
 **Tenant in this deployment request:** `opex_trial`.
 
 > Tenant note: the current implementation target is `opex_trial`. Verify the database name and admin context before saving Add-In settings. Do not register this in production until the pilot and security checks pass.
@@ -42,6 +43,7 @@ scripts/
   migrate.mjs          Local migration runner (DATABASE_URL required)
 docs/
   DEPLOYMENT.md        Cloudflare + PostgreSQL + MyGeotab deployment
+  PERSONAL-TESTING-ENVIRONMENT.md  Personal testing deployment (GitHub Pages + workers.dev + Neon + Hyperdrive)
   TENANT-VALIDATION.md Tenant proof-of-concept checklist
 ```
 
@@ -75,10 +77,10 @@ There is no permissive mock-auth mode by default. Until a real, verified authent
 
 ## Cloudflare deployment overview
 
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Suggested split:
-- Cloudflare Pages: static React frontend, custom domain `vbm.opexcg.com`.
-- Cloudflare Worker: API on a separate route/hostname such as `api-vbm.opexcg.com` (or a path route), connected to PostgreSQL through Hyperdrive.
-- PostgreSQL: managed provider approved by OPEX/IT. Cloudflare Hyperdrive is a connection pooling/connection path, not the database itself.
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Personal testing split:
+- GitHub Pages: static React frontend at `https://heppyh.github.io/opex-vehicle-booking/`.
+- Cloudflare Worker `opex-vbm-api`: API at `https://opex-vbm-api.<account-subdomain>.workers.dev`, connected to PostgreSQL through Hyperdrive.
+- Neon PostgreSQL (project `opex-vbm-dev`, database `opex_vbm_dev`). Cloudflare Hyperdrive is a connection pooling/connection path, not the database itself.
 
 Before production: implement verified identity, validate MyGeotab API access, set RBAC scopes, configure CORS/CSP, backups, monitoring, data retention and incident ownership.
 

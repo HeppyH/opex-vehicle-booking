@@ -220,7 +220,7 @@ These must be run as PostgreSQL integration tests after a database is provisione
 1. **No live PostgreSQL** available in this environment — DB-level concurrency, GiST behavior, and integration tests cannot be executed or verified here.
 2. **Identity adapter not implemented** — `resolveVerifiedPrincipal` fails closed; all protected endpoints return 503. Approval/assign/cancellation endpoints remain 501 stubs.
 3. **MyGeotab adapter not implemented** — `listDevices`/`listUsers`/`listTrips`/`latestLocations` throw; no session handling or tenant validation against `opex_trial`.
-4. **Cloudflare access not verified** — dashboard permissions, DNS zone `opexcg.com`, existing Workers/Pages/Hyperdrive not inspected.
+4. **Cloudflare access not verified** — dashboard permissions, existing Workers/Pages/Hyperdrive not inspected.
 5. **Phase 1.4 files referenced in earlier planning do not exist** in the repository (`docs/PHASE1.4-FRONTEND-VALIDATION.md`, `docs/screenshots-phase1.4/`); working tree is clean. Noted for reconciliation but outside this phase's scope.
 
 ---

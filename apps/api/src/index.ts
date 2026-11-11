@@ -12,7 +12,7 @@ import {
   cancelBooking,
   isValidTransition,
   rejectBooking,
-} from "./services/booking";
+} from "./services/booking.ts";
 
 const app = new Hono<{ Bindings: Env }>();
 

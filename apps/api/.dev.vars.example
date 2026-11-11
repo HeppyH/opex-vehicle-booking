@@ -1,0 +1,17 @@
+# Copy to apps/api/.dev.vars for `wrangler dev` (.dev.vars is git-ignored).
+# Values here are placeholders. Never commit the real file.
+
+APP_ENV=development
+
+# Local frontend (vite dev server). For the deployed frontend use https://heppyh.github.io
+ALLOWED_ORIGIN=http://localhost:5173
+
+GEOTAB_DATABASE=opex_trial
+
+# Local database. Use the Neon DIRECT (non-pooled) connection string, or a local
+# PostgreSQL URL. In the deployed Worker this is NOT used: the Hyperdrive
+# binding `DB` supplies the connection string.
+DATABASE_URL=postgres://USER:PASSWORD@HOST:5432/opex_vbm_dev?sslmode=require
+
+# Keep false until MyGeotab session verification is validated against opex_trial.
+IDENTITY_ADAPTER_CONFIGURED=false
