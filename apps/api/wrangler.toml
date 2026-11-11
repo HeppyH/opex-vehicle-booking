@@ -1,0 +1,15 @@
+name = "opex-vbm-api"
+main = "src/index.ts"
+compatibility_date = "2025-01-15"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+APP_ENV = "development"
+ALLOWED_ORIGIN = "https://vbm.opexcg.com"
+GEOTAB_DATABASE = "opex_trial"
+
+# Configure a Hyperdrive binding named DB in the Cloudflare dashboard / Wrangler.
+# Do not put a PostgreSQL URL or credentials in this file.
+# [[hyperdrive]]
+# binding = "DB"
+# id = "REPLACE_WITH_HYPERDRIVE_CONFIG_ID"

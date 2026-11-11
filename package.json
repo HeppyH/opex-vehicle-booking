@@ -1,0 +1,13 @@
+{
+  "name": "opex-vehicle-booking",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["apps/web", "apps/api"],
+  "scripts": {
+    "dev:web": "npm --workspace apps/web run dev",
+    "dev:api": "npm --workspace apps/api run dev",
+    "build": "npm --workspace apps/web run build && npm --workspace apps/api run typecheck",
+    "test": "npm --workspace apps/api run test",
+    "db:migrate": "node scripts/migrate.mjs"
+  }
+}
