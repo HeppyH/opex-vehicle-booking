@@ -3,9 +3,22 @@ export type GeotabUser = { id: string; name?: string; firstName?: string; lastNa
 export type GeotabTrip = { id?: string; device?: { id: string }; start?: string; stop?: string };
 export type GeotabLocation = { device?: { id: string }; dateTime?: string; latitude?: number; longitude?: number };
 
+export type GeotabCredentials = {
+  userName: string;
+  database: string;
+  sessionId: string;
+};
+
+export type GeotabSessionVerification = {
+  valid: boolean;
+  database: string;
+  userName: string;
+};
+
 export interface MyGeotabAdapter {
   listDevices(): Promise<GeotabDevice[]>;
   listUsers(): Promise<GeotabUser[]>;
   listTrips(deviceId: string, fromUtc: string, toUtc: string): Promise<GeotabTrip[]>;
   latestLocations(deviceIds: string[]): Promise<GeotabLocation[]>;
+  verifySession(credentials: GeotabCredentials): Promise<GeotabSessionVerification>;
 }

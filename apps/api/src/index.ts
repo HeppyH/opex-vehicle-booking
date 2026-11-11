@@ -1,8 +1,18 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import type { Env } from "./env";
-import { requirePrincipal, requireRole } from "./auth";
-import { sqlFor } from "./db";
+import type { Env } from "./env.ts";
+import { requirePrincipal, requireRole } from "./auth.ts";
+import { sqlFor } from "./db.ts";
+import {
+  assignApprovedBooking,
+  approveBooking,
+  canApprove,
+  canAssign,
+  canCancel,
+  cancelBooking,
+  isValidTransition,
+  rejectBooking,
+} from "./services/booking";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -14,7 +24,7 @@ app.use("/api/*", async (c, next) => {
 app.use("/api/*", cors({
   origin: (origin, c) => origin === c.env.ALLOWED_ORIGIN ? origin : "",
   allowMethods: ["GET", "POST", "PATCH", "OPTIONS"],
-  allowHeaders: ["Content-Type", "Authorization", "Idempotency-Key"],
+  allowHeaders: ["Content-Type", "Authorization", "Idempotency-Key", "X-Geotab-Session-Id", "X-Geotab-User-Name"],
   maxAge: 600
 }));
 
@@ -58,8 +68,6 @@ app.post("/api/bookings", requirePrincipal, async c => {
   if (!body?.startAt || !body?.endAt || !body?.purpose) return c.json({ error: "INVALID_REQUEST" }, 400);
   const start = new Date(body.startAt), end = new Date(body.endAt);
   if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start) return c.json({ error: "INVALID_INTERVAL" }, 400);
-  // This endpoint creates an unassigned request only. Assignment has a separate
-  // transactional path and must perform the vehicle conflict check at assignment time.
   const sql = sqlFor(c.env);
   try {
     const p = c.get("principal");
@@ -79,12 +87,153 @@ app.post("/api/bookings", requirePrincipal, async c => {
   } finally { await sql.end(); }
 });
 
-app.post("/api/bookings/:id/approve", requirePrincipal, requireRole("APPROVER", "MANAGEMENT", "ADMIN"), c =>
-  c.json({ error: "APPROVAL_ENGINE_NOT_IMPLEMENTED", bookingId: c.req.param("id") }, 501)
-);
-app.post("/api/bookings/:id/assign", requirePrincipal, requireRole("GA", "ADMIN"), c =>
-  c.json({ error: "ASSIGNMENT_TRANSACTION_NOT_IMPLEMENTED", bookingId: c.req.param("id") }, 501)
-);
+app.post("/api/bookings/:id/submit-for-approval", requirePrincipal, async c => {
+  const bookingId = c.req.param("id");
+  const sql = sqlFor(c.env);
+  try {
+    const p = c.get("principal");
+    const booking = await sql`
+      select id, status, requester_id from bookings where id = ${bookingId} for update
+    `;
+    if (!booking.length) return c.json({ error: "BOOKING_NOT_FOUND" }, 404);
+    const b = booking[0];
+    if (b.requester_id !== p.appUserId) return c.json({ error: "FORBIDDEN" }, 403);
+    if (!isValidTransition(b.status, "PENDING_APPROVAL")) {
+      return c.json({ error: "INVALID_TRANSITION", from: b.status, to: "PENDING_APPROVAL" }, 409);
+    }
+    await sql`
+      update bookings set status = 'PENDING_APPROVAL', version = version + 1, updated_at = now()
+      where id = ${bookingId}
+    `;
+    await sql`
+      insert into booking_audit (actor_user_id, entity_type, entity_id, action, after_json)
+      values (${p.appUserId}, 'BOOKING', ${bookingId}, 'BOOKING_SUBMIT_FOR_APPROVAL', ${sql.json({ status: "PENDING_APPROVAL" })})
+    `;
+    return c.json({ bookingId, status: "PENDING_APPROVAL" });
+  } finally { await sql.end(); }
+});
+
+app.post("/api/bookings/:id/approve", requirePrincipal, requireRole("APPROVER", "MANAGEMENT", "ADMIN"), async c => {
+  const bookingId = c.req.param("id");
+  const p = c.get("principal");
+  const body = await c.req.json().catch(() => null) as null | { comments?: string; stepNo?: number };
+  const sql = sqlFor(c.env);
+  try {
+    const booking = await sql`
+      select id, status, requester_id from bookings where id = ${bookingId} for update
+    `;
+    if (!booking.length) return c.json({ error: "BOOKING_NOT_FOUND" }, 404);
+    const b = booking[0];
+    if (!canApprove(p, b.requester_id)) {
+      return c.json({ error: "FORBIDDEN", reason: "SELF_APPROVAL_NOT_PERMITTED_OR_INSUFFICIENT_ROLE" }, 403);
+    }
+    if (!isValidTransition(b.status, "APPROVED")) {
+      return c.json({ error: "INVALID_TRANSITION", from: b.status, to: "APPROVED" }, 409);
+    }
+    const result = await approveBooking(sql, {
+      bookingId,
+      approverId: p.appUserId,
+      comments: body?.comments,
+      stepNo: body?.stepNo,
+    });
+    return c.json(result, 200);
+  } catch (e) {
+    return c.json({ error: "APPROVAL_FAILED", detail: e instanceof Error ? e.message : "unknown" }, 500);
+  } finally { await sql.end(); }
+});
+
+app.post("/api/bookings/:id/reject", requirePrincipal, requireRole("APPROVER", "MANAGEMENT", "ADMIN"), async c => {
+  const bookingId = c.req.param("id");
+  const p = c.get("principal");
+  const body = await c.req.json().catch(() => null) as null | { reason?: string; comments?: string; stepNo?: number };
+  const sql = sqlFor(c.env);
+  try {
+    const booking = await sql`
+      select id, status, requester_id from bookings where id = ${bookingId} for update
+    `;
+    if (!booking.length) return c.json({ error: "BOOKING_NOT_FOUND" }, 404);
+    const b = booking[0];
+    if (!canApprove(p, b.requester_id)) {
+      return c.json({ error: "FORBIDDEN", reason: "SELF_REJECTION_NOT_PERMITTED_OR_INSUFFICIENT_ROLE" }, 403);
+    }
+    if (!isValidTransition(b.status, "REJECTED")) {
+      return c.json({ error: "INVALID_TRANSITION", from: b.status, to: "REJECTED" }, 409);
+    }
+    const result = await rejectBooking(sql, {
+      bookingId,
+      rejecterId: p.appUserId,
+      reason: body?.reason,
+      comments: body?.comments,
+      stepNo: body?.stepNo,
+    });
+    return c.json(result, 200);
+  } catch (e) {
+    return c.json({ error: "REJECTION_FAILED", detail: e instanceof Error ? e.message : "unknown" }, 500);
+  } finally { await sql.end(); }
+});
+
+app.post("/api/bookings/:id/assign", requirePrincipal, requireRole("GA", "ADMIN"), async c => {
+  const bookingId = c.req.param("id");
+  const p = c.get("principal");
+  const body = await c.req.json().catch(() => null) as null | { vehicleId?: string };
+  const idempotencyKey = c.req.header("Idempotency-Key");
+  if (!body?.vehicleId) return c.json({ error: "INVALID_REQUEST", reason: "MISSING_VEHICLE_ID" }, 400);
+  if (!idempotencyKey) return c.json({ error: "INVALID_REQUEST", reason: "MISSING_IDEMPOTENCY_KEY" }, 400);
+  const sql = sqlFor(c.env);
+  try {
+    const booking = await sql`
+      select id, status, requester_id from bookings where id = ${bookingId} for update
+    `;
+    if (!booking.length) return c.json({ error: "BOOKING_NOT_FOUND" }, 404);
+    const b = booking[0];
+    if (!canAssign(p)) return c.json({ error: "FORBIDDEN" }, 403);
+    if (!isValidTransition(b.status, "ASSIGNED")) {
+      return c.json({ error: "INVALID_TRANSITION", from: b.status, to: "ASSIGNED" }, 409);
+    }
+    const result = await assignApprovedBooking(sql, {
+      bookingId,
+      vehicleId: body.vehicleId,
+      assignedBy: p.appUserId,
+      idempotencyKey,
+    });
+    return c.json(result, 200);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "unknown";
+    if (msg === "VEHICLE_NOT_AVAILABLE") return c.json({ error: "VEHICLE_NOT_AVAILABLE" }, 409);
+    if (msg === "BOOKING_NOT_APPROVED") return c.json({ error: "BOOKING_NOT_APPROVED" }, 409);
+    if (msg === "VEHICLE_TIME_CONFLICT") return c.json({ error: "VEHICLE_TIME_CONFLICT" }, 409);
+    if (msg === "VEHICLE_ON_HOLD") return c.json({ error: "VEHICLE_ON_HOLD" }, 409);
+    return c.json({ error: "ASSIGNMENT_FAILED", detail: msg }, 500);
+  } finally { await sql.end(); }
+});
+
+app.post("/api/bookings/:id/cancel", requirePrincipal, async c => {
+  const bookingId = c.req.param("id");
+  const p = c.get("principal");
+  const body = await c.req.json().catch(() => null) as null | { reason?: string };
+  const sql = sqlFor(c.env);
+  try {
+    const booking = await sql`
+      select id, status, requester_id from bookings where id = ${bookingId} for update
+    `;
+    if (!booking.length) return c.json({ error: "BOOKING_NOT_FOUND" }, 404);
+    const b = booking[0];
+    if (!canCancel(p, b.requester_id)) {
+      return c.json({ error: "FORBIDDEN", reason: "NOT_BOOKING_OWNER_OR_ADMIN" }, 403);
+    }
+    if (!isValidTransition(b.status, "CANCELLED")) {
+      return c.json({ error: "INVALID_TRANSITION", from: b.status, to: "CANCELLED" }, 409);
+    }
+    const result = await cancelBooking(sql, {
+      bookingId,
+      cancelerId: p.appUserId,
+      reason: body?.reason,
+    });
+    return c.json(result, 200);
+  } catch (e) {
+    return c.json({ error: "CANCELLATION_FAILED", detail: e instanceof Error ? e.message : "unknown" }, 500);
+  } finally { await sql.end(); }
+});
 
 app.notFound(c => c.json({ error: "NOT_FOUND" }, 404));
 app.onError((err, c) => {
