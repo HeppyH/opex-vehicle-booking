@@ -213,7 +213,7 @@ These are clearly distinguished as **integration tests** that cannot run without
 | MyGeotab service account credentials | Not configured | Backend MyGeotab API calls |
 | MyGeotab tenant `opex_trial` access | Not verified | Device/User/Trip/LogRecord reads |
 | Cloudflare dashboard access | Not verified | Worker/Pages/Hyperdrive deployment |
-| DNS zone `opexcg.com` | Not verified | Custom domains `vbm.opexcg.com` / `api-vbm.opexcg.com` |
+| DNS zone / custom domain | Not verified | Custom domains not needed; workers.dev + GitHub Pages used instead |
 
 ---
 

@@ -222,7 +222,7 @@ import { resolveVerifiedPrincipal } from "../src/auth.ts";
 function makeEnv(overrides) {
   return {
     APP_ENV: "development",
-    ALLOWED_ORIGIN: "https://vbm.opexcg.com",
+    ALLOWED_ORIGIN: "https://heppyh.github.io",
     GEOTAB_DATABASE: "opex_trial",
     ...overrides,
   };

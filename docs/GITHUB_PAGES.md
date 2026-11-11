@@ -80,3 +80,7 @@ npm --workspace apps/web run preview
 - Frontend reads `VITE_API_BASE_URL` for future Cloudflare Workers API calls.
 - Protected flows remain fail-closed; no fake booking/vehicle data is generated.
 - Deploy Cloudflare Worker + PostgreSQL separately per `docs/DEPLOYMENT.md` when ready; then configure `VITE_API_BASE_URL` and redeploy Pages.
+
+## Phase 2.4 — API URL for personal testing
+
+`VITE_API_BASE_URL` is read in CI from the GitHub Actions **variable** of the same name (a public, non-secret value). Set it to `https://opex-vbm-api.<account-subdomain>.workers.dev` only after the Worker exists; see `docs/DEPLOYMENT.md`, sections 7 and 8. The Worker's CORS origin for this site is `https://heppyh.github.io` (origin only, lowercase, no path).
