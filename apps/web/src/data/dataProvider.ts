@@ -7,9 +7,9 @@ import type {
   MyGeotabStatusData,
   MyGeotabLogRecord,
   OpexBooking,
-  ResolvedVehicle,
+  ResolvedAsset,
   ResolvedBooking,
-  ResolvedEmployee,
+  ResolvedUser,
   BookingDataProvider,
 } from "./types";
 import {
@@ -26,19 +26,19 @@ const RESET_KEY = "opex-vbm-demo-reset";
 
 /*───────────────────── Helper: resolve master data references ─────────────────────*/
 
-function resolveVehicle(device: MyGeotabDevice): ResolvedVehicle {
+function resolveAsset(device: MyGeotabDevice): ResolvedAsset {
   return {
     id: device.id,
-    vehicle_code: `VEH-${device.id.slice(-3).toUpperCase()}`,
-    make_model: `${device.make ?? "Unknown"} ${device.model ?? "Vehicle"}`,
-    vehicle_class: device.vehicleClass ?? "OPERATIONAL_4X4",
+    asset_code: `VEH-${device.id.slice(-3).toUpperCase()}`,
+    make_model: `${device.make ?? "Unknown"} ${device.model ?? "Asset"}`,
+    asset_class: device.vehicleClass ?? "OPERATIONAL_4X4",
     registration_no: device.licensePlate ?? null,
     status: device.status,
     geotab_device_id: device.id,
   };
 }
 
-function resolveUser(user: MyGeotabUser): ResolvedEmployee {
+function resolveUser(user: MyGeotabUser): ResolvedUser {
   return {
     id: user.id,
     name: user.name || "Unknown",
@@ -59,8 +59,8 @@ function resolveBooking(
     requester_id: booking.requesterUserId,
     requester_name: requester?.name ?? "Unknown User",
     requested_class: booking.requestedClass,
-    vehicle_id: booking.deviceId ?? null,
-    vehicle_code: device ? `VEH-${device.id.slice(-3).toUpperCase()}` : null,
+    asset_id: booking.deviceId ?? null,
+    asset_code: device ? `VEH-${device.id.slice(-3).toUpperCase()}` : null,
     registration_no: device?.licensePlate ?? null,
     start_at: booking.startAt,
     end_at: booking.endAt,
@@ -70,8 +70,11 @@ function resolveBooking(
     destination: booking.destination,
     passenger_count: booking.passengerCount,
     status: booking.status,
+    approver_id: booking.approverId ?? null,
+    approval_remarks: booking.approvalRemarks ?? null,
     version: booking.version,
     created_at: booking.createdAt,
+    updated_at: booking.updatedAt,
   };
 }
 
@@ -115,11 +118,11 @@ export class LocalBookingDataProvider implements BookingDataProvider {
   }
 
   /*───────────────────── Master data ─────────────────────*/
-  async getDevices(): Promise<ResolvedVehicle[]> {
-    return this.devices.map(resolveVehicle);
+  async getAssets(): Promise<ResolvedAsset[]> {
+    return this.devices.map(resolveAsset);
   }
 
-  async getUsers(): Promise<ResolvedEmployee[]> {
+  async getUsers(): Promise<ResolvedUser[]> {
     return this.users.map(resolveUser);
   }
 
@@ -169,6 +172,8 @@ export class LocalBookingDataProvider implements BookingDataProvider {
       passengerCount: input.passengerCount,
       status: "PENDING_APPROVAL",
       assignedDriverUserId: null,
+      approverId: null,
+      approvalRemarks: null,
       createdAt: now,
       updatedAt: now,
       version: 1,
@@ -182,12 +187,14 @@ export class LocalBookingDataProvider implements BookingDataProvider {
     return resolveBooking(booking, deviceMap, userMap);
   }
 
-  async updateBookingStatus(id: string, status: string): Promise<void> {
+  async updateBookingStatus(id: string, status: string, approverId?: string, approvalRemarks?: string): Promise<void> {
     const idx = this.bookings.findIndex(b => b.id === id);
     if (idx === -1) throw new Error(`BOOKING_NOT_FOUND: ${id}`);
     this.bookings[idx] = {
       ...this.bookings[idx],
       status: status as OpexBooking["status"],
+      ...(approverId !== undefined ? { approverId } : {}),
+      ...(approvalRemarks !== undefined ? { approvalRemarks } : {}),
       updatedAt: new Date().toISOString(),
       version: this.bookings[idx].version + 1,
     };

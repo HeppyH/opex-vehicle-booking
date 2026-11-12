@@ -1,5 +1,5 @@
 {
-  "name": "OPEX Vehicle Booking Management",
+  "name": "OPEX Asset Booking Management",
   "supportEmail": "REPLACE_WITH_PERSONAL_SUPPORT_EMAIL",
   "version": "0.1.0",
   "items": [
@@ -7,7 +7,7 @@
       "url": "https://heppyh.github.io/opex-vehicle-booking/",
       "path": "ActivityLink",
       "menuName": {
-        "en": "OPEX Vehicle Booking"
+        "en": "OPEX Asset Booking"
       },
       "category": "AddIns"
     }

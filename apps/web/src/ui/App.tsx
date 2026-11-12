@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { bookingDataProvider } from "../data/dataProvider";
-import type { ResolvedVehicle, ResolvedBooking, ResolvedEmployee, BookingDataProvider } from "../data/types";
-import { createMyGeotabProvider, MyGeotabBookingDataProvider } from "../data/mygeotabProvider";
+import type { ResolvedAsset, ResolvedBooking, ResolvedUser, BookingDataProvider } from "../data/types";
+import { createAddInDataProvider, AddInDataBookingDataProvider } from "../data/addinDataProvider";
 
 const TENANT = import.meta.env.VITE_GEOTAB_DATABASE || "opex_trial";
 
@@ -10,14 +10,13 @@ type GeotabApi = {
   getSession?: (callback: (session: { userName?: string; database?: string; server?: string } | null) => void) => void;
 };
 
-
 /*───────────────────── Types ─────────────────────*/
 
-type Vehicle = {
+type Asset = {
   id: string;
-  vehicle_code: string;
+  asset_code: string;
   make_model: string;
-  vehicle_class: string;
+  asset_class: string;
   registration_no: string | null;
   status: string;
   geotab_device_id: string | null;
@@ -27,8 +26,8 @@ type Booking = {
   requester_id: string;
   requester_name: string;
   requested_class: string;
-  vehicle_id: string | null;
-  vehicle_code: string | null;
+  asset_id: string | null;
+  asset_code: string | null;
   registration_no: string | null;
   start_at: string;
   end_at: string;
@@ -41,7 +40,7 @@ type Booking = {
   version: number;
   created_at: string;
 };
-type DemoEmployee = { id: string; name: string; roles: string[] };
+type DemoUser = { id: string; name: string; roles: string[] };
 
 type Toast = {
   id: string;
@@ -57,37 +56,16 @@ type ConfirmDialog = {
   onCancel: () => void;
 };
 
-/*───────────────────── Navigation Groups ─────────────────────*/
+/*───────────────────── Navigation ─────────────────────*/
 
-const NAV_GROUPS: Array<{ section: string; items: Array<{ key: string; label: string }> }> = [
-  {
-    section: "WORKSPACE",
-    items: [
-      { key: "Dashboard", label: "Dashboard" },
-      { key: "Vehicle Booking", label: "Vehicle Booking" },
-      { key: "My Bookings", label: "My Bookings" },
-      { key: "Approval Inbox", label: "Approval Inbox" },
-    ],
-  },
-  {
-    section: "FLEET MANAGEMENT",
-    items: [
-      { key: "GA Fleet Board", label: "GA Fleet Board" },
-      { key: "Reports", label: "Reports" },
-    ],
-  },
-  {
-    section: "ADMINISTRATION",
-    items: [
-      { key: "Administration", label: "Administration" },
-    ],
-  },
+const NAV_ITEMS: Array<{ key: string; label: string }> = [
+  { key: "Dashboard", label: "Dashboard" },
+  { key: "New Booking", label: "New Booking" },
+  { key: "My Bookings", label: "My Bookings" },
+  { key: "Approval Inbox", label: "Approval Inbox" },
+  { key: "Asset Availability", label: "Asset Availability" },
+  { key: "Booking Reports", label: "Booking Reports" },
 ];
-
-/*───────────────────── Data Provider (MyGeotab-aligned mock data + localStorage) ─────────────────────*/
-/* Master data (devices, users, groups, telemetry) comes from ./data/mockMyGeotab.ts.
-   OPEX booking transactions are persisted in localStorage via the data provider.
-   Live MyGeotab integration would only require swapping the data provider implementation. */
 
 /*───────────────────── Helpers ─────────────────────*/
 
@@ -107,6 +85,63 @@ function formatTime(s: string): string {
 
 function formatDateTime(s: string): string {
   return new Date(s).toLocaleString();
+}
+
+function computeTimeRange(range: string, customFrom?: string, customTo?: string): { from: string; to: string } | null {
+  const now = new Date();
+  if (range === "today") {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    return { from: start.toISOString(), to: end.toISOString() };
+  }
+  if (range === "thisWeek") {
+    const day = now.getDay();
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
+    monday.setHours(0, 0, 0, 0);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    sunday.setHours(23, 59, 59, 999);
+    return { from: monday.toISOString(), to: sunday.toISOString() };
+  }
+  if (range === "thisMonth") {
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    return { from: start.toISOString(), to: end.toISOString() };
+  }
+  if (range === "last30Days") {
+    const start = new Date(now);
+    start.setDate(now.getDate() - 30);
+    start.setHours(0, 0, 0, 0);
+    return { from: start.toISOString(), to: now.toISOString() };
+  }
+  if (range === "custom" && customFrom && customTo) {
+    const start = new Date(`${customFrom}T00:00:00`);
+    const end = new Date(`${customTo}T23:59:59.999`);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+    return { from: start.toISOString(), to: end.toISOString() };
+  }
+  return null;
+}
+
+function filterBookings(bookings: ResolvedBooking[], f: {
+  timeRange: string; customFrom: string; customTo: string;
+  statusFilter: string; asset: string; user: string;
+}): ResolvedBooking[] {
+  const range = computeTimeRange(f.timeRange, f.customFrom, f.customTo);
+  return bookings.filter(b => {
+    if (range) {
+      const bStart = new Date(b.start_at).getTime();
+      const bEnd = new Date(b.end_at).getTime();
+      const fFrom = new Date(range.from).getTime();
+      const fTo = new Date(range.to).getTime();
+      if (bEnd < fFrom || bStart > fTo) return false;
+    }
+    if (f.statusFilter && b.status !== f.statusFilter) return false;
+    if (f.asset && b.asset_id !== f.asset) return false;
+    if (f.user && b.requester_id !== f.user) return false;
+    return true;
+  });
 }
 
 function exportCSV(data: Array<Record<string, unknown>>, filename: string) {
@@ -143,12 +178,11 @@ function pushToast(setToasts: React.Dispatch<React.SetStateAction<Toast[]>>, typ
 
 /*───────────────────── Reusable UI Components ─────────────────────*/
 
-function StatCard({ label, value, sub, icon, trend }: {
-  label: string; value: string | number; sub: string; icon: string; trend?: { dir: "up" | "down" | "neutral"; label: string };
+function StatCard({ label, value, sub, trend }: {
+  label: string; value: string | number; sub: string; trend?: { dir: "up" | "down" | "neutral"; label: string };
 }) {
   return (
     <article className="stat-card">
-      <div className="stat-icon">{icon}</div>
       <div className="stat-label">{label}</div>
       <div className="stat-value">{value}</div>
       <div className="stat-sub">{sub}</div>
@@ -173,13 +207,13 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={cls}>{label}</span>;
 }
 
-function VehicleStatusBadge({ status }: { status: string }) {
+function AssetStatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    AVAILABLE: "badge-vehicle-available",
-    MAINTENANCE: "badge-vehicle-maintenance",
-    OUT_OF_SERVICE: "badge-vehicle-unavailable",
+    AVAILABLE: "badge-asset-available",
+    MAINTENANCE: "badge-asset-maintenance",
+    OUT_OF_SERVICE: "badge-asset-unavailable",
   };
-  const cls = "badge " + (map[status] || "badge-vehicle-unavailable");
+  const cls = "badge " + (map[status] || "badge-asset-unavailable");
   const label = status === "AVAILABLE" ? "Available" : status === "MAINTENANCE" ? "Maintenance" : "Unavailable";
   return <span className={cls}>{label}</span>;
 }
@@ -187,16 +221,14 @@ function VehicleStatusBadge({ status }: { status: string }) {
 function LoadingState({ message = "Loading…" }: { message?: string }) {
   return (
     <div className="loading-state">
-      <div className="loading-spinner"></div>
       <b>{message}</b>
     </div>
   );
 }
 
-function EmptyState({ icon = "▣", title, message, action }: { icon?: string; title: string; message: string; action?: { label: string; onClick: () => void } }) {
+function EmptyState({ title, message, action }: { title: string; message: string; action?: { label: string; onClick: () => void } }) {
   return (
     <div className="empty-state">
-      <div className="empty-icon">{icon}</div>
       <b>{title}</b>
       <p>{message}</p>
       {action && (
@@ -211,7 +243,6 @@ function EmptyState({ icon = "▣", title, message, action }: { icon?: string; t
 function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
     <div className="error-state">
-      <div className="error-icon">⚠</div>
       <b>Error</b>
       <p>{message}</p>
       {onRetry && <button className="btn btn-primary" onClick={onRetry} style={{ marginTop: 16 }}>Retry</button>}
@@ -230,10 +261,8 @@ function PageHeader({ eyebrow, title, subtitle }: { eyebrow: string; title: stri
 }
 
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string) => void }) {
-  const iconMap = { success: "✅", error: "❌", warn: "⚠️" };
   return (
     <div className={`toast toast-${toast.type}`}>
-      <span className="toast-icon">{iconMap[toast.type]}</span>
       <span className="toast-message">{toast.text}</span>
       <button className="toast-dismiss" onClick={() => onDismiss(toast.id)}>×</button>
     </div>
@@ -268,47 +297,149 @@ function ConfirmDialog({
   );
 }
 
+/*───────────────────── Booking Filter Bar ─────────────────────*/
+
+function BookingFilterBar({
+  filters,
+  onFilterChange,
+  onApplyFilters,
+  onResetFilters,
+  assets,
+  users,
+  isApprovalInbox = false,
+}: {
+  filters: { timeRange: string; customFrom: string; customTo: string; statusFilter: string; asset: string; user: string };
+  onFilterChange: (key: string, value: string) => void;
+  onApplyFilters: () => void;
+  onResetFilters: () => void;
+  assets: Asset[];
+  users: ResolvedUser[];
+  isApprovalInbox?: boolean;
+}) {
+  const timeRangeOptions = [
+    { value: "", label: "All Time" },
+    { value: "today", label: "Today" },
+    { value: "thisWeek", label: "This Week" },
+    { value: "thisMonth", label: "This Month" },
+    { value: "last30Days", label: "Last 30 Days" },
+    { value: "custom", label: "Custom Date Range" },
+  ];
+  const statusOptions = [
+    { value: "", label: "All Status" },
+    { value: "PENDING_APPROVAL", label: "Pending Approval" },
+    { value: "APPROVED", label: "Approved" },
+    { value: "REJECTED", label: "Rejected" },
+    { value: "CANCELLED", label: "Cancelled" },
+    { value: "COMPLETED", label: "Completed" },
+  ];
+  const hasActiveFilters = filters.timeRange || filters.customFrom || filters.customTo || filters.statusFilter || filters.asset || filters.user;
+  const customInvalid = filters.timeRange === "custom" && filters.customFrom && filters.customTo && filters.customFrom > filters.customTo;
+
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <div className="panel-head-content">
+          <h2>Filters</h2>
+          <p>Filter bookings by time range, status, asset, and user.</p>
+        </div>
+      </div>
+      <div className="panel-body">
+        <div className="filters">
+          <div className="form-group">
+            <label>Time Range</label>
+            <select className="form-control" value={filters.timeRange} onChange={e => onFilterChange("timeRange", e.target.value)}>
+              {timeRangeOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+          {!isApprovalInbox && (
+            <div className="form-group">
+              <label>Status</label>
+              <select className="form-control" value={filters.statusFilter} onChange={e => onFilterChange("statusFilter", e.target.value)}>
+                {statusOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+          )}
+          <div className="form-group">
+            <label>Asset</label>
+            <select className="form-control" value={filters.asset} onChange={e => onFilterChange("asset", e.target.value)}>
+              <option value="">All Assets</option>
+              {assets.map(a => <option key={a.id} value={a.id}>{a.asset_code}</option>)}
+            </select>
+          </div>
+          {!isApprovalInbox && (
+            <div className="form-group">
+              <label>User</label>
+              <select className="form-control" value={filters.user} onChange={e => onFilterChange("user", e.target.value)}>
+                <option value="">All Users</option>
+                {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+            </div>
+          )}
+          {filters.timeRange === "custom" && (
+            <div className="form-group">
+              <label>Start Date</label>
+              <input className="form-control" type="date" value={filters.customFrom} onChange={e => onFilterChange("customFrom", e.target.value)} />
+            </div>
+          )}
+          {filters.timeRange === "custom" && (
+            <div className="form-group">
+              <label>End Date</label>
+              <input className="form-control" type="date" value={filters.customTo} onChange={e => onFilterChange("customTo", e.target.value)} />
+            </div>
+          )}
+          <div className="form-group filter-actions">
+            <button className="btn btn-primary" onClick={onApplyFilters} disabled={customInvalid || (filters.timeRange === "custom" && !filters.customFrom && !filters.customTo)}>
+              Apply Filters
+            </button>
+            <button className="btn btn-secondary" onClick={onResetFilters}>Reset Filters</button>
+          </div>
+        </div>
+        {hasActiveFilters && (
+          <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", marginTop: 8 }}>
+            Active filters applied — click Reset Filters to clear
+          </div>
+        )}
+        {customInvalid && (
+          <div style={{ fontSize: "var(--text-xs)", color: "var(--status-rejected)", marginTop: 8 }}>
+            Start date must be on or before end date.
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 /*───────────────────── Pages ─────────────────────*/
 
 function Dashboard({
   bookings,
-  vehicles,
-  filters,
-  setFilters,
+  assets,
   loading,
   onLoadData,
   onExport,
-  onView,
-  onApprove,
-  onReject,
-  onAssign,
-  onComplete,
-  rejectingId,
-  onConfirmReject,
-  onCancelReject,
+  onNewBooking,
   addToast,
-  setToasts,
+  filters,
+  onFilterChange,
+  onApplyFilters,
+  onResetFilters,
+  users,
 }: {
   bookings: Booking[];
-  vehicles: Vehicle[];
-  filters: { from: string; to: string; vehicle: string; employee: string; status: string };
-  setFilters: (f: { from: string; to: string; vehicle: string; employee: string; status: string }) => void;
+  assets: Asset[];
   loading: boolean;
   onLoadData: () => void;
   onExport: () => void;
-  onView: (id: string) => void;
-  onApprove: (id: string) => void;
-  onReject: (id: string) => void;
-  onAssign: (id: string) => void;
-  onComplete: (id: string) => void;
-  rejectingId: string | null;
-  onConfirmReject: (id: string) => void;
-  onCancelReject: () => void;
+  onNewBooking: () => void;
   addToast: (type: Toast["type"], text: string) => void;
-  setToasts: (t: Toast[]) => void;
+  filters: { timeRange: string; customFrom: string; customTo: string; statusFilter: string; asset: string; user: string };
+  onFilterChange: (key: string, value: string) => void;
+  onApplyFilters: () => void;
+  onResetFilters: () => void;
+  users: ResolvedUser[];
 }) {
-  const totalVehicles = vehicles.length;
-  const availableVehicles = vehicles.filter(v => v.status === "AVAILABLE").length;
+  const totalAssets = assets.length;
+  const availableAssets = assets.filter(a => a.status === "AVAILABLE").length;
   const pendingApproval = bookings.filter(b => b.status === "PENDING_APPROVAL").length;
   const activeBookings = bookings.filter(b => b.status === "APPROVED" || b.status === "ASSIGNED").length;
 
@@ -317,133 +448,93 @@ function Dashboard({
     addToast("success", "Data refreshed.");
   };
 
-  const handleResetFilters = () => {
-    setFilters({ from: "", to: "", vehicle: "", employee: "", status: "" });
-  };
-
-  const filtered = bookings.filter(b => {
-    if (filters.from && b.start_at < filters.from) return false;
-    if (filters.to && b.start_at > filters.to) return false;
-    if (filters.status && b.status !== filters.status) return false;
-    if (filters.vehicle && b.vehicle_code?.toLowerCase().includes(filters.vehicle.toLowerCase()) === false) return false;
-    if (filters.employee && b.requester_name.toLowerCase().includes(filters.employee.toLowerCase()) === false) return false;
-    return true;
-  });
+  const recent = [...bookings].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 5);
 
   return (
     <div className="page">
       <PageHeader
-        eyebrow="OPEX Vehicle Booking Management"
-        title="Fleet Reservation Dashboard"
-        subtitle="MyGeotab database: opex_trial — fleet coordination and booking workspace"
+        eyebrow="OPEX Asset Booking Management"
+        title="Dashboard"
+        subtitle={`MyGeotab database: ${TENANT} — fleet coordination and booking workspace`}
+      />
+
+      <BookingFilterBar
+        filters={filters}
+        onFilterChange={onFilterChange}
+        onApplyFilters={onApplyFilters}
+        onResetFilters={onResetFilters}
+        assets={assets}
+        users={users}
       />
 
       <section className="stats">
         <StatCard
-          label="Total Vehicles"
-          value={totalVehicles}
+          label="Total Assets"
+          value={totalAssets}
           sub="Registered fleet"
-          icon="🚗"
-          trend={totalVehicles > 0 ? { dir: "neutral" as const, label: "fleet" } : undefined}
         />
         <StatCard
-          label="Available Vehicles"
-          value={availableVehicles}
+          label="Available Assets"
+          value={availableAssets}
           sub="Ready for booking"
-          icon="✅"
         />
         <StatCard
           label="Pending Approval"
           value={pendingApproval}
           sub="Awaiting decision"
-          icon="⏳"
         />
         <StatCard
           label="Active Bookings"
           value={activeBookings}
           sub="Approved or assigned"
-          icon="📋"
         />
       </section>
 
-      <div className="filters">
-        <div className="filter-group">
-          <label>Date Range</label>
-          <div style={{ display: "flex", gap: 8 }}>
-            <input className="form-control" type="date" value={filters.from} onChange={e => setFilters({ ...filters, from: e.target.value })} />
-            <input className="form-control" type="date" value={filters.to} onChange={e => setFilters({ ...filters, to: e.target.value })} />
-          </div>
-        </div>
-        <div className="filter-group">
-          <label>Vehicle</label>
-          <input className="form-control" placeholder="Vehicle code or plate" value={filters.vehicle} onChange={e => setFilters({ ...filters, vehicle: e.target.value })} />
-        </div>
-        <div className="filter-group">
-          <label>Employee</label>
-          <input className="form-control" placeholder="Employee name" value={filters.employee} onChange={e => setFilters({ ...filters, employee: e.target.value })} />
-        </div>
-        <div className="filter-group">
-          <label>Booking Status</label>
-          <select className="form-control" value={filters.status} onChange={e => setFilters({ ...filters, status: e.target.value })}>
-            <option value="">All</option>
-            <option value="PENDING_APPROVAL">Pending Approval</option>
-            <option value="APPROVED">Approved</option>
-            <option value="ASSIGNED">Assigned</option>
-            <option value="COMPLETED">Completed</option>
-            <option value="REJECTED">Rejected</option>
-            <option value="CANCELLED">Cancelled</option>
-          </select>
-        </div>
-        <div className="filter-actions">
-          <button className="btn btn-outline btn-sm" onClick={handleResetFilters}>Reset Filters</button>
-          <button className="btn btn-primary" onClick={handleLoad} disabled={loading}>
-            {loading ? "Loading…" : "Load Data"}
-          </button>
-          <button className="btn btn-secondary" onClick={onExport}>Export CSV</button>
-        </div>
+      <div className="dashboard-actions" style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
+        <button className="btn btn-primary" onClick={handleLoad} disabled={loading}>
+          {loading ? "Loading…" : "Load Data"}
+        </button>
+        <button className="btn btn-secondary" onClick={onExport}>Export CSV</button>
+        <button className="btn btn-primary" onClick={onNewBooking}>Create New Booking</button>
       </div>
 
       <section className="panel">
         <div className="panel-head">
           <div className="panel-head-content">
-            <h2>Booking Register</h2>
-            <p>All bookings across the fleet. Filter and load data.</p>
+            <h2>Recent Bookings</h2>
+            <p>Latest booking activity across the fleet.</p>
           </div>
           <div className="panel-head-actions">
-            <span className="badge badge-approved">{bookings.length} records</span>
+            <span className="badge badge-approved">{recent.length} records</span>
           </div>
         </div>
         <div className="panel-body">
           {loading ? (
             <LoadingState message="Loading data…" />
-          ) : filtered.length === 0 ? (
+          ) : recent.length === 0 ? (
             <EmptyState
               title="No bookings found"
-              message="Adjust your filters or load data."
-              action={{ label: "Create Booking", onClick: () => {} }}
+              message="Create your first booking to see activity here."
+              action={{ label: "Create Booking", onClick: onNewBooking }}
             />
           ) : (
             <div className="table-wrap">
               <table className="data-table">
                 <thead>
-                  <tr>
-                    <th>Booking ID</th><th>Vehicle</th><th>License Plate</th><th>Employee</th><th>Date</th><th>Time</th><th>Destination</th><th>Status</th><th>Actions</th>
+                    <tr>
+                    <th>Booking ID</th><th>Asset</th><th>User</th><th>Date</th><th>Time</th><th>Destination</th><th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map(b => (
+                  {recent.map(b => (
                     <tr key={b.id}>
                       <td>#{b.id.slice(-4)}</td>
-                      <td><b>{b.vehicle_code || "Unassigned"}</b></td>
-                      <td>{b.registration_no || "—"}</td>
+                      <td><b>{b.asset_code || "Unassigned"}</b></td>
                       <td>{b.requester_name}</td>
                       <td>{formatDate(b.start_at)}</td>
                       <td>{formatTime(b.start_at)} – {formatTime(b.end_at)}</td>
                       <td>{b.destination || "—"}</td>
                       <td><StatusBadge status={b.status} /></td>
-                      <td className="actions">
-                        <button className="btn btn-sm btn-view" onClick={() => onView(b.id)}>View</button>
-                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -456,31 +547,33 @@ function Dashboard({
   );
 }
 
-function VehicleBooking({
-  vehicles,
+function NewBooking({
+  assets,
   bookings,
-  demoEmployee,
+  demoUser,
   onCreateBooking,
   submitting,
   addToast,
+  navigateToMyBookings,
 }: {
-  vehicles: Vehicle[];
+  assets: Asset[];
   bookings: Booking[];
-  demoEmployee: DemoEmployee | null;
+  demoUser: DemoUser | null;
   onCreateBooking: (input: {
-    vehicleId: string; startAt: string; endAt: string; destination: string;
+    assetId: string; startAt: string; endAt: string; destination: string;
     purpose: string; notes: string;
   }) => void;
   submitting: boolean;
   addToast: (type: Toast["type"], text: string) => void;
+  navigateToMyBookings: () => void;
 }) {
   const [form, setForm] = useState({
-    vehicle: "", date: "", startTime: "", endTime: "", destination: "", purpose: "", notes: "",
+    asset: "", date: "", startTime: "", endTime: "", destination: "", purpose: "", notes: "",
   });
   const [conflictError, setConflictError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const availableVehicles = vehicles.filter(v => v.status === "AVAILABLE");
+  const availableAssets = assets.filter(a => a.status === "AVAILABLE");
 
   const handleChange = (key: string, value: string) => {
     setForm(prev => ({ ...prev, [key]: value }));
@@ -491,11 +584,11 @@ function VehicleBooking({
     e.preventDefault();
     setConflictError(null);
 
-    if (!demoEmployee) {
-      addToast("error", "Please select a demo employee first.");
+    if (!demoUser) {
+      addToast("error", "Please select a demo user first.");
       return;
     }
-    if (!form.vehicle || !form.date || !form.startTime || !form.endTime || !form.destination || !form.purpose) {
+    if (!form.asset || !form.date || !form.startTime || !form.endTime || !form.destination || !form.purpose) {
       addToast("error", "Please fill in all required fields.");
       return;
     }
@@ -507,16 +600,15 @@ function VehicleBooking({
       return;
     }
 
-    const selectedVehicle = vehicles.find(v => v.id === form.vehicle);
-    if (!selectedVehicle || selectedVehicle.status !== "AVAILABLE") {
-      addToast("error", "Selected vehicle is not available.");
+    const selectedAsset = assets.find(a => a.id === form.asset);
+    if (!selectedAsset || selectedAsset.status !== "AVAILABLE") {
+      addToast("error", "Selected asset is not available.");
       return;
     }
 
-    // Conflict prevention: check overlapping bookings for the same vehicle
     const conflictStatuses = ["PENDING_APPROVAL", "APPROVED", "ASSIGNED"];
     const conflictBooking = bookings.find(b => {
-      if (b.vehicle_id !== form.vehicle) return false;
+      if (b.asset_id !== form.asset) return false;
       if (!conflictStatuses.includes(b.status)) return false;
       const bStart = parseISO(b.start_at);
       const bEnd = parseISO(b.end_at);
@@ -524,7 +616,7 @@ function VehicleBooking({
     });
 
     if (conflictBooking) {
-      setConflictError(`Vehicle ${selectedVehicle.vehicle_code} already has a ${conflictBooking.status.replace(/_/g, " ").toLowerCase()} booking from ${formatDateTime(conflictBooking.start_at)} to ${formatDateTime(conflictBooking.end_at)}. Please choose another time or vehicle.`);
+      setConflictError(`Asset ${selectedAsset.asset_code} already has a ${conflictBooking.status.replace(/_/g, " ").toLowerCase()} booking from ${formatDateTime(conflictBooking.start_at)} to ${formatDateTime(conflictBooking.end_at)}. Please choose another time or asset.`);
       return;
     }
 
@@ -534,35 +626,33 @@ function VehicleBooking({
   const handleConfirmSubmit = () => {
     setConfirmOpen(false);
     onCreateBooking({
-      vehicleId: form.vehicle,
-      startAt: startISO(),
-      endAt: endISO(),
+      assetId: form.asset,
+      startAt: new Date(`${form.date}T${form.startTime}`).toISOString(),
+      endAt: new Date(`${form.date}T${form.endTime}`).toISOString(),
       destination: form.destination,
       purpose: form.purpose,
       notes: form.notes,
     });
     addToast("success", "Booking created successfully as PENDING_APPROVAL.");
+    navigateToMyBookings();
   };
-
-  function startISO() { return new Date(`${form.date}T${form.startTime}`).toISOString(); }
-  function endISO() { return new Date(`${form.date}T${form.endTime}`).toISOString(); }
 
   return (
     <div className="page">
       <PageHeader
-        eyebrow="Vehicle Booking"
+        eyebrow="Asset Booking"
         title="Create New Booking"
-        subtitle="Reserve a vehicle for your trip. Conflicting bookings are blocked automatically."
+        subtitle="Reserve an asset for your trip. Conflicting bookings are blocked automatically."
       />
 
-      {demoEmployee && (
+      {demoUser && (
         <div className="notice demo">
-          <span style={{ fontWeight: 600 }}>Booking as:</span> <b>{demoEmployee.name}</b> ({demoEmployee.id}) — demo identity, not authenticated MyGeotab
+          <span style={{ fontWeight: 600 }}>Booking as:</span> <b>{demoUser.name}</b> ({demoUser.id}) — demo identity, not authenticated MyGeotab
         </div>
       )}
-      {!demoEmployee && (
+      {!demoUser && (
         <div className="notice error">
-          No demo employee selected. Choose one from the sidebar to create bookings.
+          No demo user selected. Choose one from the topbar to create bookings.
         </div>
       )}
 
@@ -574,7 +664,7 @@ function VehicleBooking({
         <div className="panel-head">
           <div className="panel-head-content">
             <h2>Booking Form</h2>
-            <p>Select vehicle and trip details.</p>
+            <p>Select asset and trip details.</p>
           </div>
         </div>
         <div className="panel-body">
@@ -583,56 +673,32 @@ function VehicleBooking({
               <div className="form-section-label">Request Details</div>
               <div className="form-row">
                 <div className="form-group">
-                  <label>Employee</label>
-                  <select className="form-control" value={demoEmployee?.id || ""} disabled onChange={() => {}}>
-                    <option value={demoEmployee?.id || ""}>{demoEmployee ? demoEmployee.name : "Select employee"}</option>
+                  <label>User</label>
+                  <select className="form-control" value={demoUser?.id || ""} disabled onChange={() => {}}>
+                    <option value={demoUser?.id || ""}>{demoUser ? demoUser.name : "Select user"}</option>
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Department</label>
-                  <input className="form-control" value="North Sumatra" disabled placeholder="Fleet Management" />
+                  <label>Booking Purpose</label>
+                  <input className="form-control" value={form.purpose} onChange={e => handleChange("purpose", e.target.value)} placeholder="Purpose of trip" required />
                 </div>
-              </div>
-              <div className="form-group">
-                <label>Booking Purpose</label>
-                <input className="form-control" value={form.purpose} onChange={e => handleChange("purpose", e.target.value)} placeholder="Purpose of trip" required />
-              </div>
-              <div className="form-group">
-                <label>Destination</label>
-                <input className="form-control" value={form.destination} onChange={e => handleChange("destination", e.target.value)} placeholder="Destination" required />
+                <div className="form-group">
+                  <label>Destination</label>
+                  <input className="form-control" value={form.destination} onChange={e => handleChange("destination", e.target.value)} placeholder="Destination" required />
+                </div>
               </div>
             </div>
 
             <div className="form-section">
-              <div className="form-section-label">Vehicle Selection</div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Vehicle Type</label>
-                  <select className="form-control" value={form.vehicle ? vehicles.find(v => v.id === form.vehicle)?.vehicle_class : ""} disabled onChange={() => {}}>
-                    <option value="">Select vehicle type</option>
-                    <option value="OPERATIONAL_4X4">Operational 4X4</option>
-                    <option value="PASSENGER">Passenger</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Available Vehicle</label>
-                  <select className="form-control" value={form.vehicle} onChange={e => handleChange("vehicle", e.target.value)} required>
-                    <option value="">Select a vehicle</option>
-                    {availableVehicles.map(v => (
-                      <option key={v.id} value={v.id}>{v.vehicle_code} · {v.make_model} ({v.registration_no || "No plate"})</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Registration</label>
-                  <input className="form-control" value={vehicles.find(v => v.id === form.vehicle)?.registration_no || ""} disabled />
-                </div>
-                <div className="form-group">
-                  <label>Vehicle Group</label>
-                  <input className="form-control" value="North Sumatra" disabled />
-                </div>
+              <div className="form-section-label">Asset Selection</div>
+              <div className="form-group">
+                <label>Available Asset</label>
+                <select className="form-control" value={form.asset} onChange={e => handleChange("asset", e.target.value)} required>
+                  <option value="">Select an asset</option>
+                  {availableAssets.map(a => (
+                    <option key={a.id} value={a.id}>{a.asset_code} · {a.make_model} ({a.registration_no || "No plate"})</option>
+                  ))}
+                </select>
               </div>
             </div>
 
@@ -643,8 +709,6 @@ function VehicleBooking({
                   <label>Booking Date</label>
                   <input className="form-control" type="date" value={form.date} onChange={e => handleChange("date", e.target.value)} required />
                 </div>
-              </div>
-              <div className="form-row">
                 <div className="form-group">
                   <label>Start Time</label>
                   <input className="form-control" type="time" value={form.startTime} onChange={e => handleChange("startTime", e.target.value)} required />
@@ -669,42 +733,10 @@ function VehicleBooking({
             </div>
 
             <div className="form-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setForm({ vehicle: "", date: "", startTime: "", endTime: "", destination: "", purpose: "", notes: "" })}>Cancel</button>
-              <button type="submit" className="btn btn-primary" disabled={submitting || !demoEmployee}>{submitting ? "Submitting…" : "Create Booking"}</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setForm({ asset: "", date: "", startTime: "", endTime: "", destination: "", purpose: "", notes: "" })}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={submitting || !demoUser}>{submitting ? "Submitting…" : "Create Booking"}</button>
             </div>
           </form>
-        </div>
-      </section>
-
-      <section className="panel">
-        <div className="panel-head">
-          <div className="panel-head-content">
-            <h2>Vehicle Availability</h2>
-            <p>Vehicles that can be booked.</p>
-          </div>
-        </div>
-        <div className="panel-body">
-          {availableVehicles.length === 0 ? (
-            <EmptyState title="No vehicles available" message="All vehicles are currently booked or under maintenance." />
-          ) : (
-            <div className="vehicle-grid">
-              {availableVehicles.map(v => (
-                <div key={v.id} className="vehicle-card">
-                  <div className="vehicle-card-header">
-                    <div className="vehicle-card-info">
-                      <b>{v.vehicle_code}</b>
-                      <span>{v.make_model}</span>
-                      <div className="vehicle-card-meta">{v.registration_no || "Plate pending"} · {v.vehicle_class.replace(/_/g, " ")}</div>
-                    </div>
-                    <VehicleStatusBadge status={v.status} />
-                  </div>
-                  <div className="vehicle-card-footer">
-                    <span style={{ fontSize: 11, color: "#16A34A", fontWeight: 600 }}>Available for booking</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       </section>
 
@@ -725,6 +757,139 @@ function VehicleBooking({
   );
 }
 
+function MyBookings({
+  bookings,
+  demoUser,
+  users,
+  setDemoUser,
+  onExport,
+  onView,
+  onCancel,
+  addToast,
+  filters,
+  onFilterChange,
+  onApplyFilters,
+  onResetFilters,
+}: {
+  bookings: Booking[];
+  demoUser: DemoUser | null;
+  users: DemoUser[];
+  setDemoUser: (e: DemoUser | null) => void;
+  onExport: () => void;
+  onView: (id: string) => void;
+  onCancel: (id: string) => void;
+  addToast: (type: Toast["type"], text: string) => void;
+  filters: { timeRange: string; customFrom: string; customTo: string; statusFilter: string; asset: string; user: string };
+  onFilterChange: (key: string, value: string) => void;
+  onApplyFilters: () => void;
+  onResetFilters: () => void;
+}) {
+  const rows = bookings;
+  const [tab, setTab] = useState<"upcoming" | "past" | "all">("upcoming");
+
+  const now = new Date().toISOString();
+  const upcoming = rows.filter(b => b.end_at >= now && b.status !== "CANCELLED" && b.status !== "REJECTED" && b.status !== "COMPLETED");
+  const past = rows.filter(b => b.end_at < now || b.status === "CANCELLED" || b.status === "REJECTED" || b.status === "COMPLETED");
+  const activeTab = tab === "upcoming" ? upcoming : tab === "past" ? past : rows;
+
+  const handleCancel = (id: string) => {
+    if (!window.confirm("Cancel this booking?")) return;
+    onCancel(id);
+    addToast("success", "Booking cancelled.");
+  };
+
+  return (
+    <div className="page">
+      <PageHeader
+        eyebrow="My Bookings"
+        title="My Bookings"
+        subtitle={demoUser ? `Bookings for ${demoUser.name}` : "Select a demo user from the topbar."}
+      />
+
+      {!demoUser && (
+        <div className="notice error">
+          Select a demo user from the topbar to view their bookings.
+        </div>
+      )}
+
+      <BookingFilterBar
+        filters={filters}
+        onFilterChange={onFilterChange}
+        onApplyFilters={onApplyFilters}
+        onResetFilters={onResetFilters}
+        assets={[]}
+        users={users}
+      />
+
+      <section className="panel">
+        <div className="panel-head">
+          <div className="panel-head-content">
+            <h2>My Bookings</h2>
+            <p>Booking history filtered by the selected demo user.</p>
+          </div>
+          <div className="panel-head-actions">
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <button className={`btn btn-sm ${tab === "upcoming" ? "btn-primary" : "btn-outline"}`} onClick={() => setTab("upcoming")}>Upcoming</button>
+              <button className={`btn btn-sm ${tab === "past" ? "btn-primary" : "btn-outline"}`} onClick={() => setTab("past")}>Past</button>
+              <button className={`btn btn-sm ${tab === "all" ? "btn-primary" : "btn-outline"}`} onClick={() => setTab("all")}>All</button>
+              <select
+                className="form-control"
+                style={{ width: "220px", maxWidth: "300px" }}
+                value={demoUser ? demoUser.id : ""}
+                onChange={e => {
+                  const emp = users.find(x => x.id === e.target.value) || null;
+                  setDemoUser(emp);
+                }}
+              >
+                <option value="">Select demo user</option>
+                {users.map(emp => (
+                  <option key={emp.id} value={emp.id}>{emp.name} ({emp.id})</option>
+                ))}
+              </select>
+              <button className="btn btn-secondary btn-sm" onClick={onExport}>Export CSV</button>
+            </div>
+          </div>
+        </div>
+        <div className="panel-body">
+          {!demoUser ? (
+            <EmptyState title="No user selected" message="Choose a demo user from the topbar selector." />
+          ) : activeTab.length === 0 ? (
+            <EmptyState title="No bookings" message={`No ${tab} bookings found for ${demoUser?.name}.`} />
+          ) : (
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                    <tr>
+                    <th>Booking ID</th><th>Asset</th><th>Booking Date</th><th>Time</th><th>Destination</th><th>Booking Status</th><th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {activeTab.map(b => (
+                    <tr key={b.id}>
+                      <td>#{b.id.slice(-4)}</td>
+                      <td><b>{b.asset_code || "Unassigned"}</b></td>
+                      <td>{formatDate(b.start_at)}</td>
+                      <td>{formatTime(b.start_at)} – {formatTime(b.end_at)}</td>
+                      <td>{b.destination || "—"}</td>
+                      <td><StatusBadge status={b.status} /></td>
+                      <td className="actions">
+                        <button className="btn btn-sm btn-view" onClick={() => onView(b.id)}>View</button>
+                        {(b.status === "PENDING_APPROVAL" || b.status === "APPROVED" || b.status === "ASSIGNED") && (
+                          <button className="btn btn-sm btn-outline" onClick={() => handleCancel(b.id)}>Cancel</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function ApprovalInbox({
   bookings,
   onApprove,
@@ -737,6 +902,11 @@ function ApprovalInbox({
   addToast,
   rejectReason,
   setRejectReason,
+  filters,
+  onFilterChange,
+  onApplyFilters,
+  onResetFilters,
+  assets,
 }: {
   bookings: Booking[];
   onApprove: (id: string) => void;
@@ -749,8 +919,13 @@ function ApprovalInbox({
   addToast: (type: Toast["type"], text: string) => void;
   rejectReason: { [id: string]: string };
   setRejectReason: (id: string, reason: string) => void;
+  filters: { timeRange: string; customFrom: string; customTo: string; statusFilter: string; asset: string; user: string };
+  onFilterChange: (key: string, value: string) => void;
+  onApplyFilters: () => void;
+  onResetFilters: () => void;
+  assets: Asset[];
 }) {
-  const pending = bookings.filter(b => b.status === "PENDING_APPROVAL");
+  const pending = bookings;
 
   const handleAction = (id: string, action: "approve" | "reject" | "view") => {
     if (action === "approve") { onApprove(id); }
@@ -776,6 +951,16 @@ function ApprovalInbox({
         subtitle="Review and act on booking requests awaiting your decision."
       />
 
+      <BookingFilterBar
+        filters={filters}
+        onFilterChange={onFilterChange}
+        onApplyFilters={onApplyFilters}
+        onResetFilters={onResetFilters}
+        assets={assets}
+        users={[]}
+        isApprovalInbox
+      />
+
       <section className="panel">
         <div className="panel-head">
           <div className="panel-head-content">
@@ -795,7 +980,7 @@ function ApprovalInbox({
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Request ID</th><th>Employee</th><th>Vehicle</th><th>Booking Date</th><th>Destination</th><th>Request Date</th><th>Actions</th>
+                    <th>Request ID</th><th>User</th><th>Asset</th><th>Booking Date</th><th>Destination</th><th>Request Date</th><th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -803,7 +988,7 @@ function ApprovalInbox({
                     <tr key={b.id}>
                       <td>#{b.id.slice(-4)}</td>
                       <td>{b.requester_name}</td>
-                      <td>{b.vehicle_code || "Unassigned"}</td>
+                      <td>{b.asset_code || "Unassigned"}</td>
                       <td>{formatDate(b.start_at)}</td>
                       <td>{b.destination || "—"}</td>
                       <td>{formatDate(b.created_at)}</td>
@@ -842,22 +1027,31 @@ function ApprovalInbox({
   );
 }
 
-function FleetBoard({
-  vehicles,
+function AssetAvailability({
+  assets,
   bookings,
   onExport,
+  filters,
+  onFilterChange,
+  onApplyFilters,
+  onResetFilters,
+  users,
 }: {
-  vehicles: Vehicle[];
+  assets: Asset[];
   bookings: Booking[];
   onExport: () => void;
+  filters: { timeRange: string; customFrom: string; customTo: string; statusFilter: string; asset: string; user: string };
+  onFilterChange: (key: string, value: string) => void;
+  onApplyFilters: () => void;
+  onResetFilters: () => void;
+  users: ResolvedUser[];
 }) {
-  // Map bookings to vehicles for "Current Booking" column
-  const bookingByVehicle = new Map<string, Booking>();
+  const bookingByAsset = new Map<string, Booking>();
   bookings.forEach(b => {
-    if (b.vehicle_id && (b.status === "PENDING_APPROVAL" || b.status === "APPROVED" || b.status === "ASSIGNED")) {
-      const existing = bookingByVehicle.get(b.vehicle_id);
+    if (b.asset_id && (b.status === "PENDING_APPROVAL" || b.status === "APPROVED" || b.status === "ASSIGNED")) {
+      const existing = bookingByAsset.get(b.asset_id);
       if (!existing || b.created_at > existing.created_at) {
-        bookingByVehicle.set(b.vehicle_id, b);
+        bookingByAsset.set(b.asset_id, b);
       }
     }
   });
@@ -865,71 +1059,75 @@ function FleetBoard({
   return (
     <div className="page">
       <PageHeader
-        eyebrow="GA Fleet Board"
-        title="Fleet Overview"
-        subtitle="Vehicle master data and current availability."
+        eyebrow="Asset Availability"
+        title="Asset Availability"
+        subtitle="Real-time view of fleet availability and current bookings."
+      />
+
+      <BookingFilterBar
+        filters={filters}
+        onFilterChange={onFilterChange}
+        onApplyFilters={onApplyFilters}
+        onResetFilters={onResetFilters}
+        assets={assets}
+        users={users}
       />
 
       <section className="stats">
         <StatCard
           label="Total Fleet"
-          value={vehicles.length}
-          sub="All registered vehicles"
-          icon="🚙"
+          value={assets.length}
+          sub="All registered assets"
         />
         <StatCard
           label="Available"
-          value={vehicles.filter(v => v.status === "AVAILABLE").length}
+          value={assets.filter(a => a.status === "AVAILABLE").length}
           sub="Ready for booking"
-          icon="✅"
         />
         <StatCard
           label="Maintenance"
-          value={vehicles.filter(v => v.status === "MAINTENANCE").length}
+          value={assets.filter(a => a.status === "MAINTENANCE").length}
           sub="Out of service"
-          icon="🔧"
         />
         <StatCard
           label="Out of Service"
-          value={vehicles.filter(v => v.status === "OUT_OF_SERVICE").length}
+          value={assets.filter(a => a.status === "OUT_OF_SERVICE").length}
           sub="Not available"
-          icon="❌"
         />
       </section>
 
       <section className="panel">
         <div className="panel-head">
           <div className="panel-head-content">
-            <h2>Vehicle Register</h2>
+            <h2>Asset Register</h2>
             <p>Fleet inventory with current availability and booking status.</p>
           </div>
           <div className="panel-head-actions">
-            <span className="badge badge-approved">{vehicles.length} vehicles</span>
+            <span className="badge badge-approved">{assets.length} assets</span>
             <button className="btn btn-secondary btn-sm" onClick={onExport}>Export CSV</button>
           </div>
         </div>
         <div className="panel-body">
-          {vehicles.length === 0 ? (
-            <EmptyState title="No vehicles registered" message="No vehicle data available." />
+          {assets.length === 0 ? (
+            <EmptyState title="No assets registered" message="No asset data available." />
           ) : (
             <div className="table-wrap">
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Vehicle</th><th>License Plate</th><th>Vehicle Type</th><th>MyGeotab Device ID</th><th>Vehicle Group</th><th>Availability</th><th>Current Booking</th>
+                    <th>Asset</th><th>License Plate</th><th>Asset Type</th><th>MyGeotab Device ID</th><th>Availability</th><th>Current Booking</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {vehicles.map(v => {
-                    const currentBooking = bookingByVehicle.get(v.id);
+                  {assets.map(a => {
+                    const currentBooking = bookingByAsset.get(a.id);
                     return (
-                      <tr key={v.id}>
-                        <td><b>{v.vehicle_code}</b></td>
-                        <td>{v.registration_no || "—"}</td>
-                        <td>{v.vehicle_class.replace(/_/g, " ")}</td>
-                        <td>{v.geotab_device_id || "Not mapped"}</td>
-                        <td>North Sumatra</td>
-                        <td><VehicleStatusBadge status={v.status} /></td>
+                      <tr key={a.id}>
+                        <td><b>{a.asset_code}</b></td>
+                        <td>{a.registration_no || "—"}</td>
+                        <td>{a.asset_class.replace(/_/g, " ")}</td>
+                        <td>{a.geotab_device_id || "Not mapped"}</td>
+                        <td><AssetStatusBadge status={a.status} /></td>
                         <td>
                           {currentBooking ? (
                             <span style={{ fontSize: 11, color: "#1E3A5F", fontWeight: 600 }}>{`#${currentBooking.id.slice(-4)} · ${currentBooking.status.replace(/_/g, " ")}`}</span>
@@ -950,152 +1148,55 @@ function FleetBoard({
   );
 }
 
-function MyBookings({
+function BookingReports({
   bookings,
-  demoEmployee,
-  employees,
-  setDemoEmployee,
+  assets,
   onExport,
-  onView,
-  onCancel,
-  addToast,
+  filters,
+  onFilterChange,
+  onApplyFilters,
+  onResetFilters,
+  users,
 }: {
   bookings: Booking[];
-  demoEmployee: DemoEmployee | null;
-  employees: DemoEmployee[];
-  setDemoEmployee: (e: DemoEmployee | null) => void;
+  assets: Asset[];
   onExport: () => void;
-  onView: (id: string) => void;
-  onCancel: (id: string) => void;
-  addToast: (type: Toast["type"], text: string) => void;
-}) {
-  const rows = demoEmployee ? bookings.filter(b => b.requester_id === demoEmployee.id) : [];
-  const [tab, setTab] = useState<"upcoming" | "past">("upcoming");
-
-  const now = new Date().toISOString();
-  const upcoming = rows.filter(b => b.end_at >= now && b.status !== "CANCELLED" && b.status !== "REJECTED" && b.status !== "COMPLETED");
-  const past = rows.filter(b => b.end_at < now || b.status === "CANCELLED" || b.status === "REJECTED" || b.status === "COMPLETED");
-  const activeTab = tab === "upcoming" ? upcoming : past;
-
-  const handleCancel = (id: string) => {
-    if (!window.confirm("Cancel this booking?")) return;
-    onCancel(id);
-    addToast("success", "Booking cancelled.");
-  };
-
-  return (
-    <div className="page">
-      <PageHeader
-        eyebrow="My Bookings"
-        title="Booking History"
-        subtitle={demoEmployee ? `Bookings for ${demoEmployee.name}` : "Select a demo employee from the sidebar."}
-      />
-
-      {!demoEmployee && (
-        <div className="notice error">
-          Select a demo employee from the sidebar to view their bookings.
-        </div>
-      )}
-
-      <section className="panel">
-        <div className="panel-head">
-          <div className="panel-head-content">
-            <h2>My Bookings</h2>
-            <p>Booking history filtered by the selected demo employee.</p>
-          </div>
-          <div className="panel-head-actions">
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <button className={`btn btn-sm ${tab === "upcoming" ? "btn-primary" : "btn-outline"}`} onClick={() => setTab("upcoming")}>Upcoming</button>
-              <button className={`btn btn-sm ${tab === "past" ? "btn-primary" : "btn-outline"}`} onClick={() => setTab("past")}>Past</button>
-              <select
-                className="form-control"
-                style={{ width: "220px", maxWidth: "300px" }}
-                value={demoEmployee ? demoEmployee.id : ""}
-                onChange={e => {
-                  const emp = employees.find(x => x.id === e.target.value) || null;
-                  setDemoEmployee(emp);
-                }}
-              >
-                <option value="">Select demo employee</option>
-                {employees.map(emp => (
-                  <option key={emp.id} value={emp.id}>{emp.name} ({emp.id})</option>
-                ))}
-              </select>
-              <button className="btn btn-secondary btn-sm" onClick={onExport}>Export CSV</button>
-            </div>
-          </div>
-        </div>
-        <div className="panel-body">
-          {!demoEmployee ? (
-            <EmptyState title="No employee selected" message="Choose a demo employee from the sidebar selector." />
-          ) : activeTab.length === 0 ? (
-            <EmptyState title="No bookings" message={`No ${tab} bookings found for ${demoEmployee?.name}.`} />
-          ) : (
-            <div className="table-wrap">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Booking ID</th><th>Vehicle</th><th>Booking Date</th><th>Time</th><th>Destination</th><th>Booking Status</th><th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {activeTab.map(b => (
-                    <tr key={b.id}>
-                      <td>#{b.id.slice(-4)}</td>
-                      <td><b>{b.vehicle_code || "Unassigned"}</b></td>
-                      <td>{formatDate(b.start_at)}</td>
-                      <td>{formatTime(b.start_at)} – {formatTime(b.end_at)}</td>
-                      <td>{b.destination || "—"}</td>
-                      <td><StatusBadge status={b.status} /></td>
-                      <td className="actions">
-                        <button className="btn btn-sm btn-view" onClick={() => onView(b.id)}>View</button>
-                        {(b.status === "PENDING_APPROVAL" || b.status === "APPROVED" || b.status === "ASSIGNED") && (
-                          <button className="btn btn-sm btn-outline" onClick={() => handleCancel(b.id)}>Cancel</button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function Reports({
-  bookings,
-  vehicles,
-  onExport,
-}: {
-  bookings: Booking[];
-  vehicles: Vehicle[];
-  onExport: () => void;
+  filters: { timeRange: string; customFrom: string; customTo: string; statusFilter: string; asset: string; user: string };
+  onFilterChange: (key: string, value: string) => void;
+  onApplyFilters: () => void;
+  onResetFilters: () => void;
+  users: ResolvedUser[];
 }) {
   const total = bookings.length;
   const byStatus = bookings.reduce<Record<string, number>>((acc, b) => { acc[b.status] = (acc[b.status] || 0) + 1; return acc; }, {});
-  const byVehicle = bookings.reduce<Record<string, number>>((acc, b) => { if (b.vehicle_code) acc[b.vehicle_code] = (acc[b.vehicle_code] || 0) + 1; return acc; }, {});
-  const mostBooked = Object.entries(byVehicle).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const byAsset = bookings.reduce<Record<string, number>>((acc, b) => { if (b.asset_code) acc[b.asset_code] = (acc[b.asset_code] || 0) + 1; return acc; }, {});
+  const mostBooked = Object.entries(byAsset).sort((a, b) => b[1] - a[1]).slice(0, 5);
 
-  // Real utilization: percentage of vehicles that have at least one booking
-  const vehiclesWithBookings = new Set(bookings.filter(b => b.vehicle_id).map(b => b.vehicle_id)).size;
-  const utilization = vehicles.length > 0 ? Math.round((vehiclesWithBookings / vehicles.length) * 100) : 0;
+  const assetsWithBookings = new Set(bookings.filter(b => b.asset_id).map(b => b.asset_id)).size;
+  const utilization = assets.length > 0 ? Math.round((assetsWithBookings / assets.length) * 100) : 0;
 
   return (
     <div className="page">
       <PageHeader
-        eyebrow="Reports"
+        eyebrow="Booking Reports"
         title="Booking Reports"
         subtitle="Fleet utilization and booking analytics based on actual data."
       />
 
+      <BookingFilterBar
+        filters={filters}
+        onFilterChange={onFilterChange}
+        onApplyFilters={onApplyFilters}
+        onResetFilters={onResetFilters}
+        assets={assets}
+        users={users}
+      />
+
       <section className="stats">
-        <StatCard label="Total Bookings" value={total} sub="All time" icon="📊" />
-        <StatCard label="Vehicle Utilization" value={`${utilization}%`} sub={`${vehiclesWithBookings} of ${vehicles.length} vehicles used`} icon="📈" />
-        <StatCard label="Most Booked Vehicle" value={mostBooked[0]?.[0] || "—"} sub={mostBooked[0]?.[1] ? `${mostBooked[0][1]} bookings` : "No data"} icon="🏆" />
-        <StatCard label="Status Summary" value={Object.keys(byStatus).length} sub="Different statuses" icon="📋" />
+        <StatCard label="Total Bookings" value={total} sub="All time" />
+        <StatCard label="Asset Utilization" value={`${utilization}%`} sub={`${assetsWithBookings} of ${assets.length} assets used`} />
+        <StatCard label="Most Booked Asset" value={mostBooked[0]?.[0] || "—"} sub={mostBooked[0]?.[1] ? `${mostBooked[0][1]} bookings` : "No data"} />
+        <StatCard label="Status Summary" value={Object.keys(byStatus).length} sub="Different statuses" />
       </section>
 
       <div className="filters" style={{ marginBottom: 0 }}>
@@ -1118,7 +1219,6 @@ function Reports({
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 14 }}>
               {Object.entries(byStatus).map(([status, count]) => (
                 <div key={status} className="stat-card">
-                  <div className="stat-icon">📋</div>
                   <div className="stat-label">{status.replace(/_/g, " ")}</div>
                   <div className="stat-value">{count}</div>
                   <div className="stat-sub">bookings</div>
@@ -1132,13 +1232,13 @@ function Reports({
       <section className="panel">
         <div className="panel-head">
           <div className="panel-head-content">
-            <h2>Most Booked Vehicles</h2>
-            <p>Top vehicles by number of bookings.</p>
+            <h2>Most Booked Assets</h2>
+            <p>Top assets by number of bookings.</p>
           </div>
         </div>
         <div className="panel-body">
           {mostBooked.length === 0 ? (
-            <EmptyState title="No vehicle data" message="Bookings will populate this report." />
+            <EmptyState title="No asset data" message="Bookings will populate this report." />
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {mostBooked.map(([code, count]) => (
@@ -1160,91 +1260,11 @@ function Reports({
   );
 }
 
-function Administration({
-  geotabApi,
-  dataSource,
-  onResetDemoData,
-  addToast,
-}: {
-  geotabApi: GeotabApi | null;
-  dataSource: "LOCAL_DEMO" | "MYGEOTAB_LIVE";
-  onResetDemoData: () => void;
-  addToast: (type: Toast["type"], text: string) => void;
-}) {
-  return (
-    <div className="page">
-      <PageHeader
-        eyebrow="Administration"
-        title="System Administration"
-        subtitle="Configure users, roles, vehicles, and demo data."
-      />
-
-      <section className="panel">
-        <div className="panel-head">
-          <div className="panel-head-content">
-            <h2>Data Source Settings</h2>
-            <p>Current data source and connection status.</p>
-          </div>
-        </div>
-        <div className="panel-body">
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
-            <div className="stat-card">
-              <div className="stat-label">Data Source</div>
-              <div className="stat-value" style={{ fontSize: 14, textTransform: "uppercase" }}>{dataSource}</div>
-              <div className="stat-sub">{dataSource === "MYGEOTAB_LIVE" ? "MyGeotab live API" : "Local mock data"}</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">MyGeotab Connection</div>
-              <div className="stat-value" style={{ fontSize: 14 }}>{geotabApi ? "Connected" : "Not available"}</div>
-              <div className="stat-sub">{geotabApi ? "Running inside MyGeotab Add-In" : "Standalone preview"}</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">Booking Storage</div>
-              <div className="stat-value">localStorage</div>
-              <div className="stat-sub">Transactions are local/simulated</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">Identity</div>
-              <div className="stat-value">Demo mode</div>
-              <div className="stat-sub">Not authenticated MyGeotab user</div>
-            </div>
-          </div>
-          <div style={{ marginTop: 20 }}>
-            <p style={{ fontSize: 12, color: "#6B7280", marginBottom: 8 }}><b>Security:</b> No credentials or session information are stored in the frontend. Demo employee selection is simulation only, not authenticated identity.</p>
-            <button className="btn btn-secondary btn-sm" onClick={onResetDemoData}>Reset Demo Data</button>
-            {dataSource === "MYGEOTAB_LIVE" && !geotabApi && (
-              <p style={{ fontSize: 11, color: "#FCA5A5", marginTop: 8 }}>Not running inside MyGeotab Add-In — live master data unavailable.</p>
-            )}
-          </div>
-        </div>
-      </section>
-
-      <section className="panel">
-        <div className="panel-head">
-          <div className="panel-head-content">
-            <h2>Demo Data Management</h2>
-            <p>Reset all local booking transactions to initial state.</p>
-          </div>
-        </div>
-        <div className="panel-body">
-          <p style={{ fontSize: 13, color: "#6B7280", marginBottom: 16 }}>This will restore all 30 demo booking transactions. Vehicle, user, and group master data are unchanged.</p>
-          <button className="btn btn-secondary" onClick={() => {
-            if (window.confirm("Reset all demo booking transactions to initial state?")) {
-              onResetDemoData();
-              addToast("success", "Demo data reset to initial state.");
-            }
-          }}>Reset Demo Data</button>
-        </div>
-      </section>
-    </div>
-  );
-}
-
 /*───────────────────── View Details Modal ─────────────────────*/
 
 function ViewDetailsModal({
   booking,
-  vehicles,
+  assets,
   onClose,
   onApprove,
   onReject,
@@ -1259,7 +1279,7 @@ function ViewDetailsModal({
   setRejectReason,
 }: {
   booking: Booking | null;
-  vehicles: Vehicle[];
+  assets: Asset[];
   onClose: () => void;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
@@ -1274,7 +1294,7 @@ function ViewDetailsModal({
   setRejectReason: (id: string, reason: string) => void;
 }) {
   if (!booking) return null;
-  const vehicle = vehicles.find(v => v.id === booking.vehicle_id);
+  const asset = assets.find(a => a.id === booking.asset_id);
   const handleModalApprove = () => { onApprove(booking.id); onClose(); addToast("success", `Booking #${booking.id.slice(-4)} approved.`); };
   const handleModalReject = () => { onReject(booking.id); };
   const handleModalAssign = () => { onAssign(booking.id); onClose(); addToast("success", `Booking #${booking.id.slice(-4)} assigned.`); };
@@ -1301,9 +1321,9 @@ function ViewDetailsModal({
         <div className="modal-body">
           <div className="detail-grid">
             <div className="detail-row"><label>Booking ID</label><span className="value">#{booking.id.slice(-4)}</span></div>
-            <div className="detail-row"><label>Employee</label><span className="value">{booking.requester_name}</span></div>
-            <div className="detail-row"><label>Vehicle</label><span className="value">{booking.vehicle_code || "Unassigned"} {vehicle ? `(${vehicle.registration_no || "No plate"})` : ""}</span></div>
-            <div className="detail-row"><label>Vehicle Class</label><span className="value">{booking.requested_class.replace(/_/g, " ")}</span></div>
+            <div className="detail-row"><label>User</label><span className="value">{booking.requester_name}</span></div>
+            <div className="detail-row"><label>Asset</label><span className="value">{booking.asset_code || "Unassigned"} {asset ? `(${asset.registration_no || "No plate"})` : ""}</span></div>
+            <div className="detail-row"><label>Asset Class</label><span className="value">{booking.requested_class.replace(/_/g, " ")}</span></div>
             <div className="detail-row"><label>Start</label><span className="value">{formatDateTime(booking.start_at)}</span></div>
             <div className="detail-row"><label>End</label><span className="value">{formatDateTime(booking.end_at)}</span></div>
             <div className="detail-row"><label>Destination</label><span className="value">{booking.destination || "—"}</span></div>
@@ -1334,7 +1354,7 @@ function ViewDetailsModal({
               </>
             ) : null}
             {booking.status === "APPROVED" ? (
-              <button className="btn btn-sm btn-primary" onClick={handleModalAssign}>Assign Vehicle</button>
+              <button className="btn btn-sm btn-primary" onClick={handleModalAssign}>Assign Asset</button>
             ) : null}
             {booking.status === "ASSIGNED" ? (
               <button className="btn btn-sm btn-primary" onClick={handleModalComplete}>Complete Booking</button>
@@ -1355,27 +1375,59 @@ function ViewDetailsModal({
   );
 }
 
-
 /*───────────────────── Main App ─────────────────────*/
 
 export default function App() {
   const [bookings, setBookings] = useState<ResolvedBooking[]>([]);
-  const [vehicles, setVehicles] = useState<ResolvedVehicle[]>([]);
-  const [users, setUsers] = useState<ResolvedEmployee[]>([]);
-  const [demoEmployee, setDemoEmployee] = useState<ResolvedEmployee | null>(null);
+  const [assets, setAssets] = useState<ResolvedAsset[]>([]);
+  const [users, setUsers] = useState<ResolvedUser[]>([]);
+  const [demoUser, setDemoUser] = useState<ResolvedUser | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [active, setActive] = useState("Dashboard");
-  const [filters, setFilters] = useState({ from: "", to: "", vehicle: "", employee: "", status: "" });
+  const [filters, setFilters] = useState({
+    timeRange: "",
+    customFrom: "",
+    customTo: "",
+    statusFilter: "",
+    asset: "",
+    user: "",
+  });
   const [selectedBooking, setSelectedBooking] = useState<ResolvedBooking | null>(null);
   const [geotabApi, setGeotabApi] = useState<GeotabApi | null>(null);
-  const [dataSource, setDataSource] = useState<"LOCAL_DEMO" | "MYGEOTAB_LIVE">("LOCAL_DEMO");
+  const [mode, setMode] = useState<"DEMO" | "ADDIN_DATA">("DEMO");
   const [myGeotabError, setMyGeotabError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [rejectReason, setRejectReasonState] = useState<{ [id: string]: string }>({});
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [addInId, setAddInId] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem("opex-vbm-addin-id") || null;
+    } catch {
+      return null;
+    }
+  });
+  const [addInIdInput, setAddInIdInput] = useState<string>("");
+  const [currentMyGeotabUser, setCurrentMyGeotabUser] = useState<{ userName?: string; database?: string; server?: string } | null>(null);
+  const [providerError, setProviderError] = useState<string | null>(null);
+
+  const onFilterChange = useCallback((key: string, value: string) => {
+    setFilters(prev => ({ ...prev, [key]: value }));
+  }, []);
+
+  const onResetFilters = useCallback(() => {
+    setFilters({ timeRange: "", customFrom: "", customTo: "", statusFilter: "", asset: "", user: "" });
+  }, []);
+
+  const dashboardBookings = useMemo(() => filterBookings(bookings, filters), [bookings, filters]);
+  const myBookingsData = useMemo(() => {
+    let result = filterBookings(bookings, filters);
+    if (demoUser) result = result.filter(b => b.requester_id === demoUser.id);
+    return result;
+  }, [bookings, filters, demoUser]);
+  const approvalBookings = useMemo(() => filterBookings(bookings, { ...filters, statusFilter: "PENDING_APPROVAL" }), [bookings, filters]);
+  const availabilityBookings = useMemo(() => filterBookings(bookings, filters), [bookings, filters]);
+  const reportsBookings = useMemo(() => filterBookings(bookings, filters), [bookings, filters]);
 
   useEffect(() => {
     let mounted = true;
@@ -1385,41 +1437,119 @@ export default function App() {
       if (ce.detail?.api) {
         setGeotabApi(ce.detail.api);
         document.documentElement.dataset.opexVbm = "initialized";
+        // Retrieve current MyGeotab user identity from Add-In context
+        ce.detail.api.getSession?.((session) => {
+          if (mounted && session) {
+            setCurrentMyGeotabUser(session);
+            // Auto-activate ADDIN_DATA when running inside MyGeotab with addInId configured
+            if (addInId && mode === "DEMO") {
+              setMode("ADDIN_DATA");
+              setProviderError(null);
+            }
+          }
+        });
+      }
+    };
+
+    const onFocus = (event: Event) => {
+      const ce = event as CustomEvent<{ api: GeotabApi | null; state: unknown }>;
+      if (ce.detail?.api) {
+        setGeotabApi(ce.detail.api);
+        // Re-check auto-activation on focus (addInId may have been configured meanwhile)
+        if (addInId && mode === "DEMO") {
+          setMode("ADDIN_DATA");
+          setProviderError(null);
+        }
       }
     };
 
     window.addEventListener("opex-vbm:initialize", onInitialize as EventListener);
-    window.addEventListener("opex-vbm:focus", onInitialize as EventListener);
+    window.addEventListener("opex-vbm:focus", onFocus as EventListener);
 
-    const provider: BookingDataProvider = dataSource === "MYGEOTAB_LIVE"
-      ? createMyGeotabProvider(geotabApi)
+    // Determine effective provider: no silent fallback to DEMO when LIVE is intended
+    const effectiveMode = mode === "ADDIN_DATA" && !geotabApi ? "DEMO" : mode;
+    const provider: BookingDataProvider = effectiveMode === "ADDIN_DATA"
+      ? createAddInDataProvider(geotabApi, addInId)
       : bookingDataProvider;
 
-    provider.getDevices().then((v: ResolvedVehicle[]) => { if (mounted) setVehicles(v); }).catch((e: unknown) => { if (mounted) setMyGeotabError(e instanceof Error ? e.message : "Failed to load devices from MyGeotab."); });
-    provider.getUsers().then((u: ResolvedEmployee[]) => { if (mounted) { setUsers(u); if (u.length > 0 && !demoEmployee) setDemoEmployee(u[0]); } }).catch((e: unknown) => { if (mounted) setMyGeotabError(e instanceof Error ? e.message : "Failed to load users from MyGeotab."); });
-    provider.getBookings().then((b: ResolvedBooking[]) => { if (mounted) setBookings(b); }).catch((e: unknown) => { if (mounted) setMyGeotabError(e instanceof Error ? e.message : "Failed to load bookings."); });
+    const loadMasterData = async () => {
+      try {
+        const [assets, users, bookings] = await Promise.all([
+          provider.getAssets(),
+          provider.getUsers(),
+          provider.getBookings(),
+        ]);
+        if (mounted) {
+          setAssets(assets);
+          setUsers(users);
+          setBookings(bookings);
+          // In ADDIN_DATA mode, use authenticated MyGeotab user as current user
+          if (effectiveMode === "ADDIN_DATA" && currentMyGeotabUser) {
+            const matched = users.find(u => u.name === currentMyGeotabUser?.userName || u.id === currentMyGeotabUser?.userName);
+            if (matched && !demoUser) {
+              setDemoUser(matched);
+            }
+          }
+          setProviderError(null);
+        }
+      } catch (e) {
+        if (mounted) {
+          const msg = e instanceof Error ? e.message : "Failed to load data from MyGeotab.";
+          setMyGeotabError(msg);
+          // No silent fallback: if ADDIN_DATA was intended but failed, surface the error
+          if (mode === "ADDIN_DATA" && !geotabApi) {
+            setProviderError("MyGeotab Add-In API is not available. ADDIN_DATA mode requires running inside a registered MyGeotab Add-In.");
+          } else if (mode === "ADDIN_DATA" && !addInId) {
+            setProviderError("Add-In Id is not configured. Enter your AddInId to use ADDIN_DATA storage.");
+          } else {
+            setProviderError(msg);
+          }
+          // Fall back to DEMO only as a last resort for standalone preview
+          if (mode === "DEMO") {
+            const fb = bookingDataProvider;
+            Promise.all([
+              fb.getAssets(),
+              fb.getUsers(),
+              fb.getBookings(),
+            ]).then(([a, u, b]) => {
+              if (mounted) {
+                setAssets(a);
+                setUsers(u);
+                setBookings(b);
+              }
+            });
+          }
+        }
+      }
+    };
+
+    loadMasterData();
 
     return () => {
       mounted = false;
       window.removeEventListener("opex-vbm:initialize", onInitialize as EventListener);
-      window.removeEventListener("opex-vbm:focus", onInitialize as EventListener);
+      window.removeEventListener("opex-vbm:focus", onFocus as EventListener);
     };
-  }, [dataSource, geotabApi, demoEmployee]);
+  }, [mode, geotabApi, addInId, demoUser, currentMyGeotabUser]);
+
+  // Keep the AddInId text input in sync with the persisted value
+  useEffect(() => {
+    setAddInIdInput(addInId ?? "");
+  }, [addInId]);
 
   const provider = useMemo(() => {
-    if (dataSource === "MYGEOTAB_LIVE") {
-      return createMyGeotabProvider(geotabApi);
+    const effectiveMode = mode === "ADDIN_DATA" && !geotabApi ? "DEMO" : mode;
+    if (effectiveMode === "ADDIN_DATA") {
+      return createAddInDataProvider(geotabApi, addInId);
     }
     return bookingDataProvider;
-  }, [dataSource, geotabApi]);
-
+  }, [mode, geotabApi, addInId]);
   const pushToastCb = useCallback((type: Toast["type"], text: string) => {
     pushToast(setToasts, type, text);
   }, []);
 
-  /*───────────────────── State mutations ─────────────────────*/
-  const updateBookingStatus = useCallback(async (id: string, newStatus: string) => {
-    await provider.updateBookingStatus(id, newStatus);
+  const updateBookingStatus = useCallback(async (id: string, newStatus: string, approverId?: string, approvalRemarks?: string) => {
+    await provider.updateBookingStatus(id, newStatus, approverId, approvalRemarks);
     const updated = await provider.getBookings();
     setBookings(updated);
   }, [provider]);
@@ -1427,16 +1557,25 @@ export default function App() {
   const onLoadData = useCallback(async () => {
     setLoading(true);
     setMessage(null);
+    setProviderError(null);
     try {
       const refreshed = await provider.getBookings();
       setBookings(refreshed);
       setLoading(false);
-      setMessage({ type: "success", text: dataSource === "MYGEOTAB_LIVE" ? "Master data reloaded from MyGeotab live API." : "Demo data reloaded from local storage." });
+      setMessage({ type: "success", text: mode === "ADDIN_DATA" ? "Bookings reloaded from MyGeotab AddInData." : "Demo data reloaded from local storage." });
     } catch (e) {
       setLoading(false);
-      setMessage({ type: "error", text: e instanceof Error ? e.message : "Failed to reload data." });
+      const msg = e instanceof Error ? e.message : "Failed to reload data.";
+      setMessage({ type: "error", text: msg });
+      setProviderError(msg);
+      // No silent fallback: if ADDIN_DATA was intended but failed, surface the error
+      if (mode === "ADDIN_DATA" && !geotabApi) {
+        setProviderError("MyGeotab Add-In API is not available. ADDIN_DATA mode requires running inside a registered MyGeotab Add-In.");
+      } else if (mode === "ADDIN_DATA" && !addInId) {
+        setProviderError("Add-In Id is not configured. Enter your AddInId to use ADDIN_DATA storage.");
+      }
     }
-  }, [provider, dataSource]);
+  }, [provider, mode, geotabApi, addInId]);
 
   const onResetDemoData = useCallback(async () => {
     setLoading(true);
@@ -1453,15 +1592,41 @@ export default function App() {
     }
   }, [provider]);
 
+  const onSaveAddInId = useCallback(async () => {
+    const trimmed = addInIdInput.trim();
+    if (!trimmed) {
+      setAddInId(null);
+      try { localStorage.removeItem("opex-vbm-addin-id"); } catch { }
+      setProviderError(null);
+      setMode("DEMO");
+      setMessage({ type: "success", text: "Add-In Id cleared. Running in DEMO mode." });
+      return;
+    }
+    try {
+      localStorage.setItem("opex-vbm-addin-id", trimmed);
+      setAddInId(trimmed);
+      setProviderError(null);
+      // When inside MyGeotab, switch to LIVE (ADDIN_DATA); otherwise stay DEMO until API is available
+      if (geotabApi) {
+        setMode("ADDIN_DATA");
+        setMessage({ type: "success", text: "Add-In Id saved. LIVE mode active inside MyGeotab." });
+      } else {
+        setMessage({ type: "success", text: "Add-In Id saved. Switch to LIVE mode when running inside MyGeotab." });
+      }
+    } catch (e) {
+      setProviderError(e instanceof Error ? e.message : "Failed to save Add-In Id.");
+    }
+  }, [addInIdInput, geotabApi]);
+
   const onCreateBooking = useCallback(async (input: {
-    vehicleId: string; startAt: string; endAt: string; destination: string;
+    assetId: string; startAt: string; endAt: string; destination: string;
     purpose: string; notes: string;
   }) => {
-    if (!demoEmployee) return;
+    if (!demoUser) return;
     try {
       const created = await provider.createBooking({
-        deviceId: input.vehicleId,
-        requesterUserId: demoEmployee.id,
+        deviceId: input.assetId,
+        requesterUserId: demoUser.id,
         requestedClass: "PASSENGER",
         startAt: input.startAt,
         endAt: input.endAt,
@@ -1475,20 +1640,20 @@ export default function App() {
     } catch (e) {
       setMessage({ type: "error", text: e instanceof Error ? e.message : "Failed to create booking." });
     }
-  }, [demoEmployee, provider]);
+  }, [demoUser, provider]);
 
   const onApprove = useCallback(async (id: string) => {
-    await updateBookingStatus(id, "APPROVED");
-  }, [updateBookingStatus]);
+    await updateBookingStatus(id, "APPROVED", demoUser?.id ?? undefined);
+  }, [updateBookingStatus, demoUser]);
 
   const onReject = useCallback((id: string) => {
     setRejectingId(id);
   }, []);
 
   const onConfirmReject = useCallback(async (id: string) => {
-    await updateBookingStatus(id, "REJECTED");
+    await updateBookingStatus(id, "REJECTED", demoUser?.id ?? undefined, rejectReason[id] ?? undefined);
     setRejectingId(null);
-  }, [updateBookingStatus]);
+  }, [updateBookingStatus, demoUser, rejectReason]);
 
   const onCancelReject = useCallback(() => {
     setRejectingId(null);
@@ -1512,13 +1677,16 @@ export default function App() {
     await updateBookingStatus(id, "CANCELLED");
   }, [bookings, updateBookingStatus]);
 
-  /*───────────────────── CSV exports ─────────────────────*/
+  const setRejectReason = useCallback((id: string, reason: string) => {
+    setRejectReasonState(prev => ({ ...prev, [id]: reason }));
+  }, []);
+
   const onExportDashboard = useCallback(() => {
-    const data = bookings.map(b => ({
+    const data = dashboardBookings.map(b => ({
       "Booking ID": b.id,
-      Vehicle: b.vehicle_code || "Unassigned",
+      Asset: b.asset_code || "Unassigned",
       "License Plate": b.registration_no || "",
-      Employee: b.requester_name,
+      User: b.requester_name,
       "Booking Date": b.start_at,
       "Start Time": b.start_at,
       "End Time": b.end_at,
@@ -1526,105 +1694,101 @@ export default function App() {
       "Booking Status": b.status,
     }));
     exportCSV(data, `opex-vbm-dashboard-bookings-${new Date().toISOString().slice(0,10)}.csv`);
-  }, [bookings]);
+  }, [dashboardBookings]);
 
   const onExportMyBookings = useCallback(() => {
-    const rows = demoEmployee ? bookings.filter(b => b.requester_id === demoEmployee.id) : [];
-    const data = rows.map(b => ({
+    const data = myBookingsData.map(b => ({
       "Booking ID": b.id,
-      Vehicle: b.vehicle_code || "Unassigned",
+      Asset: b.asset_code || "Unassigned",
       "Booking Date": b.start_at,
       "Start Time": b.start_at,
       "End Time": b.end_at,
       Destination: b.destination || "",
       "Booking Status": b.status,
     }));
-    exportCSV(data, `opex-vbm-mybookings-${demoEmployee?.name || "all"}-${new Date().toISOString().slice(0,10)}.csv`);
-  }, [bookings, demoEmployee]);
+    exportCSV(data, `opex-vbm-mybookings-${demoUser?.name || "all"}-${new Date().toISOString().slice(0,10)}.csv`);
+  }, [myBookingsData, demoUser]);
 
   const onExportApprovals = useCallback(() => {
-    const data = bookings
-      .filter(b => b.status === "PENDING_APPROVAL")
-      .map(b => ({
-        "Request ID": b.id,
-        Employee: b.requester_name,
-        Vehicle: b.vehicle_code || "Unassigned",
-        "Booking Date": b.start_at,
-        Destination: b.destination || "",
-        "Request Date": b.created_at,
-      }));
+    const data = approvalBookings.map(b => ({
+      "Request ID": b.id,
+      User: b.requester_name,
+      Asset: b.asset_code || "Unassigned",
+      "Booking Date": b.start_at,
+      Destination: b.destination || "",
+      "Request Date": b.created_at,
+    }));
     exportCSV(data, `opex-vbm-approvals-${new Date().toISOString().slice(0,10)}.csv`);
-  }, [bookings]);
+  }, [approvalBookings]);
 
   const onExportFleet = useCallback(() => {
-    const data = vehicles.map(v => ({
-      "Vehicle Name": v.vehicle_code,
-      "License Plate": v.registration_no || "",
-      "Vehicle Type": v.vehicle_class,
-      "MyGeotab Device ID": v.geotab_device_id || "",
-      "Vehicle Group": "North Sumatra",
-      Availability: v.status,
+    const data = assets.map(a => ({
+      "Asset Name": a.asset_code,
+      "License Plate": a.registration_no || "",
+      "Asset Type": a.asset_class,
+      "MyGeotab Device ID": a.geotab_device_id || "",
+      "Asset Group": "North Sumatra",
+      Availability: a.status,
       "Current Booking": "",
     }));
     exportCSV(data, `opex-vbm-fleet-${new Date().toISOString().slice(0,10)}.csv`);
-  }, [vehicles]);
+  }, [assets]);
 
-  const setRejectReason = useCallback((id: string, reason: string) => {
-    setRejectReasonState(prev => ({ ...prev, [id]: reason }));
-  }, []);
+  const navigateTo = (key: string) => {
+    setActive(key);
+  };
 
-  /*───────────────────── Render ─────────────────────*/
   const Page = (() => {
     switch (active) {
       case "Dashboard": return (
         <Dashboard
-          bookings={bookings}
-          vehicles={vehicles}
-          filters={filters}
-          setFilters={setFilters}
+          bookings={dashboardBookings}
+          assets={assets}
           loading={loading}
           onLoadData={onLoadData}
           onExport={onExportDashboard}
-          onView={id => setSelectedBooking(bookings.find(b => b.id === id) || null)}
-          onApprove={onApprove}
-          onReject={onReject}
-          onAssign={onAssign}
-          onComplete={onComplete}
-          rejectingId={rejectingId}
-          onConfirmReject={onConfirmReject}
-          onCancelReject={onCancelReject}
+          onNewBooking={() => navigateTo("New Booking")}
           addToast={pushToastCb}
-          setToasts={setToasts}
+          filters={filters}
+          onFilterChange={onFilterChange}
+          onApplyFilters={onLoadData}
+          onResetFilters={onResetFilters}
+          users={users}
         />
       );
-      case "Vehicle Booking": return (
-        <VehicleBooking
-          vehicles={vehicles}
+      case "New Booking": return (
+        <NewBooking
+          assets={assets}
           bookings={bookings}
-          demoEmployee={demoEmployee}
+          demoUser={demoUser}
           onCreateBooking={onCreateBooking}
           submitting={loading}
           addToast={pushToastCb}
+          navigateToMyBookings={() => navigateTo("My Bookings")}
         />
       );
       case "My Bookings": return (
         <MyBookings
-          bookings={bookings}
-          demoEmployee={demoEmployee}
-          employees={users}
-          setDemoEmployee={setDemoEmployee}
+          bookings={myBookingsData}
+          demoUser={demoUser}
+          users={users}
+          setDemoUser={setDemoUser}
           onExport={onExportMyBookings}
-          onView={id => setSelectedBooking(bookings.find(b => b.id === id) || null)}
+          onView={id => setSelectedBooking(myBookingsData.find(b => b.id === id) || null)}
           onCancel={onCancel}
           addToast={pushToastCb}
+          filters={filters}
+          onFilterChange={onFilterChange}
+          onApplyFilters={onLoadData}
+          onResetFilters={onResetFilters}
         />
       );
       case "Approval Inbox": return (
         <ApprovalInbox
-          bookings={bookings}
+          bookings={approvalBookings}
           onApprove={onApprove}
           onReject={onReject}
-          onView={id => setSelectedBooking(bookings.find(b => b.id === id) || null)}
+          onView={id => setSelectedBooking(approvalBookings.find(b => b.id === id) || null)}
           rejectingId={rejectingId}
           onConfirmReject={onConfirmReject}
           onCancelReject={onCancelReject}
@@ -1632,111 +1796,178 @@ export default function App() {
           addToast={pushToastCb}
           rejectReason={rejectReason}
           setRejectReason={setRejectReason}
+          filters={filters}
+          onFilterChange={onFilterChange}
+          onApplyFilters={onLoadData}
+          onResetFilters={onResetFilters}
+          assets={assets}
         />
       );
-      case "GA Fleet Board": return (
-        <FleetBoard vehicles={vehicles} bookings={bookings} onExport={onExportFleet} />
+      case "Asset Availability": return (
+        <AssetAvailability assets={assets} bookings={availabilityBookings} onExport={onExportFleet}
+          filters={filters}
+          onFilterChange={onFilterChange}
+          onApplyFilters={onLoadData}
+          onResetFilters={onResetFilters}
+          users={users} />
       );
-      case "Reports": return (
-        <Reports bookings={bookings} vehicles={vehicles} onExport={onExportDashboard} />
+      case "Booking Reports": return (
+        <BookingReports bookings={reportsBookings} assets={assets} onExport={onExportDashboard}
+          filters={filters}
+          onFilterChange={onFilterChange}
+          onApplyFilters={onLoadData}
+          onResetFilters={onResetFilters}
+          users={users} />
       );
-      case "Administration": return (
-        <Administration
-          geotabApi={geotabApi}
-          dataSource={dataSource}
-          onResetDemoData={onResetDemoData}
+      default: return (
+        <Dashboard
+          bookings={dashboardBookings}
+          assets={assets}
+          loading={loading}
+          onLoadData={onLoadData}
+          onExport={onExportDashboard}
+          onNewBooking={() => navigateTo("New Booking")}
           addToast={pushToastCb}
+          filters={filters}
+          onFilterChange={onFilterChange}
+          onApplyFilters={onLoadData}
+          onResetFilters={onResetFilters}
+          users={users}
         />
       );
-      default: return <Dashboard bookings={bookings} vehicles={vehicles} filters={filters} setFilters={setFilters} loading={loading} onLoadData={onLoadData} onExport={onExportDashboard} onView={id => setSelectedBooking(bookings.find(b => b.id === id) || null)} onApprove={onApprove} onReject={onReject} onAssign={onAssign} onComplete={onComplete} rejectingId={rejectingId} onConfirmReject={onConfirmReject} onCancelReject={onCancelReject} addToast={pushToastCb} setToasts={setToasts} />;
     }
   })();
 
+  const pendingCount = bookings.filter(b => b.status === "PENDING_APPROVAL").length;
+
   return (
     <div className="shell">
-      <aside className={`sidebar ${sidebarCollapsed ? "collapsed" : ""}`}>
-        <div className="brand">
-          <span className="brand-mark">O</span>
-          <div><b>OPEX VBM</b><small>VEHICLE BOOKING</small></div>
-        </div>
-        <div className="tenant">MYGEOTAB · {TENANT} · {dataSource === "MYGEOTAB_LIVE" ? "LIVE MASTER DATA" : "LOCAL DEMO"}</div>
-        <nav>
-          {NAV_GROUPS.map(group => (
-            <div key={group.section} className="nav-group">
-              <div className="nav-group-label">{group.section}</div>
-              {group.items.map(item => (
-                <button
-                  key={item.key}
-                  className={`nav ${active === item.key ? "active" : ""}`}
-                  onClick={() => { setActive(item.key); if (window.innerWidth <= 768) setSidebarOpen(false); }}
-                >
-                  <span className="nav-label">{item.label}</span>
-                </button>
-              ))}
-            </div>
-          ))}
-        </nav>
-        <div className="data-source-switch">
-          <label>Data source</label>
-          <select
-            className="form-control"
-            value={dataSource}
-            onChange={e => setDataSource(e.target.value === "MYGEOTAB_LIVE" ? "MYGEOTAB_LIVE" : "LOCAL_DEMO")}
-          >
-            <option value="LOCAL_DEMO">LOCAL DEMO (mock data)</option>
-            <option value="MYGEOTAB_LIVE">MYGEOTAB LIVE (opex_trial)</option>
-          </select>
-          <div className="source-status">
-            {dataSource === "MYGEOTAB_LIVE" && !geotabApi ? (
-              <span className="live-unavailable">Not running inside MyGeotab Add-In — live data unavailable.</span>
-            ) : dataSource === "MYGEOTAB_LIVE" && geotabApi ? (
-              <span className="live-connected">Connected to MyGeotab Add-In API.</span>
-            ) : (
-              <span className="demo">Bookings always local/simulated.</span>
-            )}
-          </div>
-        </div>
-        <div className="side-foot">OPEX Vehicle Booking<br/>North Sumatra · Fleet Management</div>
-      </aside>
-
-      {window.innerWidth <= 768 && sidebarOpen && (
-        <div className="sidebar-backdrop open" onClick={() => setSidebarOpen(false)} />
-      )}
-
       <main className="main">
         <div className="topbar">
           <div className="topbar-left">
             <div className="topbar-brand">
-              <div className="topbar-brand-mark">O</div>
-              <div className="topbar-brand-text"><b>OPEX VBM</b><small>Vehicle Booking</small></div>
+              <div className="topbar-brand-text"><b>OPEX VBM</b><small>Asset Booking</small></div>
             </div>
             <div className="topbar-divider"></div>
             <div className="topbar-info">
               <div className="topbar-tenant">{TENANT}</div>
-              <div className="topbar-source">{dataSource === "MYGEOTAB_LIVE" ? "MYGEOTAB LIVE" : "LOCAL DEMO"}</div>
+              <div className="topbar-source">{mode === "ADDIN_DATA" ? "ADDIN DATA" : "DEMO MODE"}</div>
             </div>
           </div>
           <div className="topbar-right">
-            {window.innerWidth <= 768 && (
-              <button className="btn btn-icon" onClick={() => setSidebarOpen(true)} style={{ padding: 6 }}>
-                ☰
+            {/* Mode toggle: DEMO (standalone) vs LIVE / ADDIN_DATA (inside MyGeotab) */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <label style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.05em" }}>Mode</label>
+              <select
+                className="form-control"
+                style={{ width: "130px", fontSize: "var(--text-sm)" }}
+                value={mode}
+                onChange={e => setMode(e.target.value as "DEMO" | "ADDIN_DATA")}
+                disabled={mode === "ADDIN_DATA" && !geotabApi}
+              >
+                <option value="DEMO">DEMO (standalone)</option>
+                <option value="ADDIN_DATA">LIVE (MyGeotab AddInData)</option>
+              </select>
+              {mode === "ADDIN_DATA" && !geotabApi && (
+                <span style={{ fontSize: "var(--text-xs)", color: "#EF4444" }}>API not available</span>
+              )}
+            </div>
+
+            {/* AddInId input: required for ADDIN_DATA write operations */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <label style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.05em" }}>AddInId</label>
+              <input
+                className="form-control"
+                style={{ width: "180px", fontSize: "var(--text-sm)" }}
+                value={addInIdInput}
+                onChange={e => setAddInIdInput(e.target.value)}
+                placeholder="e.g. opex-vbm-addin"
+                disabled={mode === "DEMO" && !geotabApi}
+              />
+              <button
+                className="btn btn-primary"
+                onClick={onSaveAddInId}
+                disabled={mode === "DEMO" && !geotabApi}
+                style={{ fontSize: "var(--text-sm)", padding: "4px 10px" }}
+              >
+                Save
               </button>
+              {addInId && (
+                <span style={{ fontSize: "var(--text-xs)", color: "#10B981" }}>● configured</span>
+              )}
+            </div>
+
+            {/* Current MyGeotab user from authenticated session */}
+            {currentMyGeotabUser && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 12, borderLeft: "1px solid var(--border)" }}>
+                <div>
+                  <div style={{ fontSize: "var(--text-xs)", color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.05em" }}>MyGeotab User</div>
+                  <div style={{ fontSize: 12, fontWeight: 600 }}>{currentMyGeotabUser.userName || "Unknown"}</div>
+                  <div style={{ fontSize: 10, color: "#6B7280" }}>{currentMyGeotabUser.database || ""}{currentMyGeotabUser.server ? ` · ${currentMyGeotabUser.server}` : ""}</div>
+                </div>
+              </div>
             )}
+
+            {/* Demo User select (DEMO mode only) */}
+            {mode === "DEMO" && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 12, borderLeft: "1px solid var(--border)" }}>
+                <label style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.05em" }}>Demo User</label>
+                <select
+                  className="form-control"
+                  style={{ width: "180px", fontSize: "var(--text-sm)" }}
+                  value={demoUser ? demoUser.id : ""}
+                  onChange={e => {
+                    const emp = users.find(x => x.id === e.target.value) || null;
+                    setDemoUser(emp);
+                  }}
+                >
+                  <option value="">Select user</option>
+                  {users.map(u => (
+                    <option key={u.id} value={u.id}>{u.name} ({u.id})</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className="user-badge">
-              {demoEmployee ? (
+              {demoUser ? (
                 <>
-                  <div className="user-avatar">{demoEmployee.name.charAt(0)}</div>
                   <div>
-                    <div style={{ fontSize: 12 }}>{demoEmployee.name}</div>
-                    <div style={{ fontSize: 10, color: "#6B7280" }}>{demoEmployee.roles.join(", ")}</div>
+                    <div style={{ fontSize: 12 }}>{demoUser.name}</div>
+                    <div style={{ fontSize: 10, color: "#6B7280" }}>{demoUser.roles.join(", ")}</div>
                   </div>
                 </>
               ) : (
-                <div style={{ fontSize: 11, color: "#9CA3AF" }}>No employee</div>
+                <div style={{ fontSize: 11, color: "#9CA3AF" }}>No user</div>
               )}
             </div>
           </div>
+
+          {/* Provider error banner (never silently swallowed) */}
+          {providerError && (
+            <div style={{ marginLeft: 16, padding: 8, background: "#FEF2F2", border: "1px solid #FECACA", color: "#991B1B", fontSize: "var(--text-xs)", borderRadius: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "400px" }}>
+              {providerError}
+            </div>
+          )}
         </div>
+
+        <nav className="tab-nav">
+          {NAV_ITEMS.map(item => {
+            const isActive = active === item.key;
+            const badge = item.key === "Approval Inbox" && pendingCount > 0 ? (
+              <span className="tab-badge">{pendingCount}</span>
+            ) : null;
+            return (
+              <button
+                key={item.key}
+                className={`tab ${isActive ? "tab-active" : ""}`}
+                onClick={() => navigateTo(item.key)}
+              >
+                {item.label}{badge}
+              </button>
+            );
+          })}
+        </nav>
 
         {message && (
           <div className={`notice ${message.type === "success" ? "success" : "error"}`} style={{ marginBottom: 0 }}>
@@ -1748,7 +1979,7 @@ export default function App() {
           {Page}
           <ViewDetailsModal
             booking={selectedBooking}
-            vehicles={vehicles}
+            assets={assets}
             onClose={() => setSelectedBooking(null)}
             onApprove={onApprove}
             onReject={onReject}
@@ -1771,7 +2002,7 @@ export default function App() {
         </div>
 
         <footer style={{ marginTop: 40, paddingTop: 20, borderTop: "1px solid var(--border)", fontSize: 11, color: "#6B7280" }}>
-          OPEX Vehicle Booking Management · v0.1.0 · {dataSource} · Bookings: local only
+          OPEX Asset Booking Management · v0.1.0 · {mode} · Bookings: {mode === "ADDIN_DATA" ? "MyGeotab AddInData" : "local mock"}
         </footer>
       </main>
     </div>
