@@ -19,7 +19,7 @@ export const mockMyGeotabGroups: MyGeotabGroup[] = [
   { id: "grp-maintenance", name: "Maintenance Fleet", parentId: "grp-hq" },
 ];
 
-/*───────────────────── Devices (16 vehicles) ─────────────────────*/
+/*───────────────────── Assets (16 assets) ─────────────────────*/
 export const mockMyGeotabDevices: MyGeotabDevice[] = [
   {
     id: "dev-001",
@@ -199,7 +199,7 @@ export const mockMyGeotabDevices: MyGeotabDevice[] = [
   },
 ];
 
-/*───────────────────── Users (15 employees) ─────────────────────*/
+/*───────────────────── Users (15 users) ─────────────────────*/
 export const mockMyGeotabUsers: MyGeotabUser[] = [
   {
     id: "u101",
@@ -472,6 +472,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: null,
     createdAt: "2026-11-11T08:00:00Z",
     updatedAt: "2026-11-11T08:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -490,6 +492,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: null,
     createdAt: "2026-11-11T09:00:00Z",
     updatedAt: "2026-11-11T09:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -508,6 +512,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: "u101",
     createdAt: "2026-11-11T10:00:00Z",
     updatedAt: "2026-11-11T10:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -526,6 +532,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: null,
     createdAt: "2026-11-11T11:00:00Z",
     updatedAt: "2026-11-11T11:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -544,6 +552,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: null,
     createdAt: "2026-11-11T12:00:00Z",
     updatedAt: "2026-11-11T12:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -562,6 +572,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: null,
     createdAt: "2026-11-11T13:00:00Z",
     updatedAt: "2026-11-11T13:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -580,6 +592,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: null,
     createdAt: "2026-11-11T14:00:00Z",
     updatedAt: "2026-11-11T14:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -598,6 +612,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: "u109",
     createdAt: "2026-11-11T15:00:00Z",
     updatedAt: "2026-11-11T15:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -616,6 +632,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: null,
     createdAt: "2026-11-11T16:00:00Z",
     updatedAt: "2026-11-11T16:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -634,6 +652,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: null,
     createdAt: "2026-11-11T17:00:00Z",
     updatedAt: "2026-11-11T17:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -652,6 +672,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: null,
     createdAt: "2026-11-11T18:00:00Z",
     updatedAt: "2026-11-11T18:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -670,6 +692,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: null,
     createdAt: "2026-11-11T19:00:00Z",
     updatedAt: "2026-11-11T19:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -688,6 +712,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: null,
     createdAt: "2026-11-11T20:00:00Z",
     updatedAt: "2026-11-11T20:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -706,6 +732,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: null,
     createdAt: "2026-11-11T21:00:00Z",
     updatedAt: "2026-11-11T21:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -724,6 +752,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: null,
     createdAt: "2026-11-11T22:00:00Z",
     updatedAt: "2026-11-11T22:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -742,6 +772,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: "u101",
     createdAt: "2026-11-11T23:00:00Z",
     updatedAt: "2026-11-11T23:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -760,6 +792,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: "u111",
     createdAt: "2026-11-12T00:00:00Z",
     updatedAt: "2026-11-12T00:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -778,6 +812,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: "u102",
     createdAt: "2026-11-12T01:00:00Z",
     updatedAt: "2026-11-12T01:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -796,6 +832,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: null,
     createdAt: "2026-11-12T02:00:00Z",
     updatedAt: "2026-11-12T02:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -814,6 +852,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: null,
     createdAt: "2026-11-12T03:00:00Z",
     updatedAt: "2026-11-12T03:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -832,6 +872,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: null,
     createdAt: "2026-11-12T04:00:00Z",
     updatedAt: "2026-11-12T04:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -850,6 +892,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: null,
     createdAt: "2026-11-12T05:00:00Z",
     updatedAt: "2026-11-12T05:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -868,6 +912,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: null,
     createdAt: "2026-11-12T06:00:00Z",
     updatedAt: "2026-11-12T06:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -886,6 +932,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: null,
     createdAt: "2026-11-12T07:00:00Z",
     updatedAt: "2026-11-12T07:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -904,6 +952,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: null,
     createdAt: "2026-11-12T08:00:00Z",
     updatedAt: "2026-11-12T08:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -922,6 +972,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: "u110",
     createdAt: "2026-11-12T09:00:00Z",
     updatedAt: "2026-11-12T09:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -940,6 +992,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: null,
     createdAt: "2026-11-12T10:00:00Z",
     updatedAt: "2026-11-12T10:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -958,6 +1012,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: null,
     createdAt: "2026-11-12T11:00:00Z",
     updatedAt: "2026-11-12T11:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -976,6 +1032,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: "u102",
     createdAt: "2026-11-12T12:00:00Z",
     updatedAt: "2026-11-12T12:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
   {
@@ -994,6 +1052,8 @@ export const mockOpexBookings: OpexBooking[] = [
     assignedDriverUserId: null,
     createdAt: "2026-11-12T13:00:00Z",
     updatedAt: "2026-11-12T13:00:00Z",
+    approverId: null,
+    approvalRemarks: null,
     version: 1,
   },
 ];

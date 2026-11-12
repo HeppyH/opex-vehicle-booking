@@ -6,9 +6,9 @@ import type {
   MyGeotabGroup,
   MyGeotabStatusData,
   MyGeotabLogRecord,
-  ResolvedVehicle,
+  ResolvedAsset,
   ResolvedBooking,
-  ResolvedEmployee,
+  ResolvedUser,
   BookingDataProvider,
 } from "./types";
 import {
@@ -57,19 +57,19 @@ type RawMyGeotabGroup = {
 
 /*───────────────────── Mapping helpers ─────────────────────*/
 
-function mapLiveDevice(raw: RawMyGeotabDevice): ResolvedVehicle {
+function mapLiveAsset(raw: RawMyGeotabDevice): ResolvedAsset {
   return {
     id: raw.id,
-    vehicle_code: `VEH-${raw.id.slice(-3).toUpperCase()}`,
-    make_model: `${raw.make ?? "Unknown"} ${raw.model ?? "Vehicle"}`,
-    vehicle_class: raw.vehicleClass ?? "OPERATIONAL_4X4",
+    asset_code: `VEH-${raw.id.slice(-3).toUpperCase()}`,
+    make_model: `${raw.make ?? "Unknown"} ${raw.model ?? "Asset"}`,
+    asset_class: raw.vehicleClass ?? "OPERATIONAL_4X4",
     registration_no: raw.licensePlate ?? null,
     status: raw.status ?? "AVAILABLE",
     geotab_device_id: raw.id,
   };
 }
 
-function mapLiveUser(raw: RawMyGeotabUser): ResolvedEmployee {
+function mapLiveUser(raw: RawMyGeotabUser): ResolvedUser {
   return {
     id: raw.id,
     name: raw.name || "Unknown",
@@ -110,15 +110,15 @@ export class MyGeotabBookingDataProvider implements BookingDataProvider {
 
   /*───────────────────── Read-only master data (live from MyGeotab) ─────────────────────*/
 
-  async getDevices(): Promise<ResolvedVehicle[]> {
+  async getAssets(): Promise<ResolvedAsset[]> {
     const devices = await this.apiCall<RawMyGeotabDevice[]>("Get", {
       typeName: "Device",
       resultsLimit: 1000,
     });
-    return devices.map(mapLiveDevice);
+    return devices.map(mapLiveAsset);
   }
 
-  async getUsers(): Promise<ResolvedEmployee[]> {
+  async getUsers(): Promise<ResolvedUser[]> {
     const users = await this.apiCall<RawMyGeotabUser[]>("Get", {
       typeName: "User",
       resultsLimit: 1000,

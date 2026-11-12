@@ -72,17 +72,19 @@ export interface OpexBooking {
     | "CANCELLED"
     | "EXPIRED";
   assignedDriverUserId: string | null;
+  approverId: string | null;
+  approvalRemarks: string | null;
   createdAt: string;
   updatedAt: string;
   version: number;
 }
 
 /*───────────────────── Frontend-view types (resolved through master data) ─────────────────────*/
-export interface ResolvedVehicle {
+export interface ResolvedAsset {
   id: string;
-  vehicle_code: string;
+  asset_code: string;
   make_model: string;
-  vehicle_class: string;
+  asset_class: string;
   registration_no: string | null;
   status: string;
   geotab_device_id: string | null;
@@ -93,8 +95,8 @@ export interface ResolvedBooking {
   requester_id: string;
   requester_name: string;
   requested_class: string;
-  vehicle_id: string | null;
-  vehicle_code: string | null;
+  asset_id: string | null;
+  asset_code: string | null;
   registration_no: string | null;
   start_at: string;
   end_at: string;
@@ -104,11 +106,14 @@ export interface ResolvedBooking {
   destination: string | null;
   passenger_count: number | null;
   status: string;
+  approver_id: string | null;
+  approval_remarks: string | null;
   version: number;
   created_at: string;
+  updated_at: string;
 }
 
-export interface ResolvedEmployee {
+export interface ResolvedUser {
   id: string;
   name: string;
   roles: string[];
@@ -116,8 +121,8 @@ export interface ResolvedEmployee {
 
 /*───────────────────── Data Provider Interface ─────────────────────*/
 export interface BookingDataProvider {
-  getDevices(): Promise<ResolvedVehicle[]>;
-  getUsers(): Promise<ResolvedEmployee[]>;
+  getAssets(): Promise<ResolvedAsset[]>;
+  getUsers(): Promise<ResolvedUser[]>;
   getGroups(): Promise<MyGeotabGroup[]>;
   getStatusData(): Promise<MyGeotabStatusData[]>;
   getLogRecords(): Promise<MyGeotabLogRecord[]>;
@@ -132,7 +137,7 @@ export interface BookingDataProvider {
     destination: string | null;
     passengerCount: number | null;
   }): Promise<ResolvedBooking>;
-  updateBookingStatus(id: string, status: string): Promise<void>;
+  updateBookingStatus(id: string, status: string, approverId?: string, approvalRemarks?: string): Promise<void>;
   deleteBooking(id: string): Promise<void>;
   resetDemoData(): Promise<void>;
   isLive(): boolean;
