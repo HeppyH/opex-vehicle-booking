@@ -236,7 +236,7 @@ No connection strings or credentials go in `wrangler.toml`.
 | Worker | `opex-vbm-api` | `opex-vbm-api` |
 | Pages project | (existing or new) | (existing or new) |
 | Worker URL pattern | `https://opex-vbm-api.<account-subdomain>.workers.dev` | `https://opex-vbm-api.<account-subdomain>.workers.dev` |
-| Frontend URL | `https://heppyh.github.io/opex-vehicle-booking/` | `https://heppyh.github.io/opex-vehicle-booking/` |
+| Frontend URL | `https://heppyh.github.io/opexassetbooking/` | `https://heppyh.github.io/opexassetbooking/` |
 
 ### 7.3 Secrets / Environment Variables (Never Commit)
 

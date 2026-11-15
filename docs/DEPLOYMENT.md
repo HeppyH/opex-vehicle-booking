@@ -8,7 +8,7 @@
 
 ```text
 MyGeotab (database: opex_trial)            Browser
-   └── Add-In (later; see section 10)         └── https://heppyh.github.io/opex-vehicle-booking/
+   └── Add-In (later; see section 10)         └── https://heppyh.github.io/opexassetbooking/
                                                       │   (GitHub Pages, static React app)
                                                       │ HTTPS, CORS allows only https://heppyh.github.io
                                                       ▼
@@ -30,8 +30,8 @@ Hyperdrive is a connection pooler and path to your database. It is not a databas
 
 | Item | Value | Where it is configured |
 | --- | --- | --- |
-| GitHub account / repo | `HeppyH` / `opex-vehicle-booking` | GitHub |
-| Frontend URL | `https://heppyh.github.io/opex-vehicle-booking/` | Vite `base` in `apps/web/vite.config.ts` |
+| GitHub account / repo | `HeppyH` / `opexassetbooking` | GitHub |
+| Frontend URL | `https://heppyh.github.io/opexassetbooking/` | Vite `base` in `apps/web/vite.config.ts` |
 | CORS origin | `https://heppyh.github.io` (origin only: no path, no trailing slash, lowercase) | `ALLOWED_ORIGIN` in `apps/api/wrangler.toml` |
 | Worker | `opex-vbm-api` | `name` in `apps/api/wrangler.toml` |
 | API URL | `https://opex-vbm-api.<account-subdomain>.workers.dev` | GitHub Actions variable `VITE_API_BASE_URL` |
@@ -145,14 +145,14 @@ GitHub Pages must already be set to **Source: GitHub Actions** (see `docs/GITHUB
 
 1. After the Worker answers `/api/health`, add the repository **variable** (not a secret): Settings → Secrets and variables → Actions → Variables → `VITE_API_BASE_URL` = `https://opex-vbm-api.<account-subdomain>.workers.dev` (no trailing slash).
 2. Re-run the workflow "Deploy web to GitHub Pages" (or push to `main`). The build embeds the value; with the variable unset the UI keeps showing "Backend not connected".
-3. Open `https://heppyh.github.io/opex-vehicle-booking/`. Expect the status card to show the API as connected while vehicle and booking lists stay locked (identity is off).
+3. Open `https://heppyh.github.io/opexassetbooking/`. Expect the status card to show the API as connected while vehicle and booking lists stay locked (identity is off).
 
 ## 9. CORS and secure MyGeotab session verification
 
 ### CORS
 
 - The Worker allows exactly one browser origin: `ALLOWED_ORIGIN`. A request with any other `Origin` header gets `403 ORIGIN_NOT_ALLOWED`; preflight replies only for the allowed origin.
-- `ALLOWED_ORIGIN` must be the browser's origin: `https://heppyh.github.io`. Browsers send the host in lowercase and without the repository path, so `https://heppyh.github.io/opex-vehicle-booking/` or `https://HeppyH.github.io` would never match.
+- `ALLOWED_ORIGIN` must be the browser's origin: `https://heppyh.github.io`. Browsers send the host in lowercase and without the repository path, so `https://heppyh.github.io/opexassetbooking/` or `https://HeppyH.github.io` would never match.
 - Allowed methods: `GET, POST, PATCH, OPTIONS`. Allowed request headers: `Content-Type, Authorization, Idempotency-Key, X-Geotab-Session-Id, X-Geotab-User-Name`.
 - CORS protects browsers only. It is not authentication; the API's authorisation is the verified principal and role checks.
 - For local testing, set `ALLOWED_ORIGIN=http://localhost:5173` in `.dev.vars`. Do not add `*`.
@@ -185,7 +185,7 @@ Do not set `IDENTITY_ADAPTER_CONFIGURED=true` until these are resolved and teste
 
 The frontend can be tested standalone on GitHub Pages without MyGeotab. Registering it in `opex_trial` needs a tenant administrator and is a separate manual step.
 
-**Blocking finding:** Geotab's Add-In documentation says an externally hosted Add-In's absolute URL must not contain a hyphen (`-`), `@` or `#` anywhere, and gives a hyphenated URL as an example that "will not be loaded correctly". The configured URL `https://heppyh.github.io/opex-vehicle-booking/` has hyphens in its path. Expect it to fail to load inside MyGeotab. Standalone use is unaffected. Options, none applied yet:
+**Blocking finding:** Geotab's Add-In documentation says an externally hosted Add-In's absolute URL must not contain a hyphen (`-`), `@` or `#` anywhere, and gives a hyphenated URL as an example that "will not be loaded correctly". The configured URL `https://heppyh.github.io/opexassetbooking/` has hyphens in its path. Expect it to fail to load inside MyGeotab. Standalone use is unaffected. Options, none applied yet:
 
 1. Serve the app from a hyphen-free path, for example a repository named without hyphens, which also changes the Vite `base` and the Add-In `url`.
 2. Serve it from the root of a user site repository named `heppyh.github.io`.

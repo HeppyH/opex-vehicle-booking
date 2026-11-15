@@ -1,7 +1,9 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { bookingDataProvider } from "../data/dataProvider";
-import type { ResolvedAsset, ResolvedBooking, ResolvedUser, BookingDataProvider } from "../data/types";
+import type { ResolvedAsset, ResolvedBooking, ResolvedUser, BookingDataProvider, OpexNotification, NotificationType, NotificationDataProvider } from "../data/types";
 import { createAddInDataProvider, AddInDataBookingDataProvider } from "../data/addinDataProvider";
+import { createNotificationEngine, NotificationEngine } from "../data/notificationService";
+import { useAutoRefresh } from "./autoRefresh";
 
 const TENANT = import.meta.env.VITE_GEOTAB_DATABASE || "opex_trial";
 
@@ -63,6 +65,7 @@ const NAV_ITEMS: Array<{ key: string; label: string }> = [
   { key: "New Booking", label: "New Booking" },
   { key: "My Bookings", label: "My Bookings" },
   { key: "Approval Inbox", label: "Approval Inbox" },
+  { key: "Notifications", label: "Notifications" },
   { key: "Asset Availability", label: "Asset Availability" },
   { key: "Booking Reports", label: "Booking Reports" },
 ];
@@ -406,6 +409,82 @@ function BookingFilterBar({
         )}
       </div>
     </section>
+  );
+}
+
+/*───────────────────── Notification Dropdown ─────────────────────*/
+
+function NotificationDropdown({
+  notifications,
+  unreadCount,
+  onMarkAsRead,
+  onMarkAllAsRead,
+  onClose,
+  onNotificationClick,
+  demoUserId,
+}: {
+  notifications: OpexNotification[];
+  unreadCount: number;
+  onMarkAsRead: (id: string) => void;
+  onMarkAllAsRead: () => void;
+  onClose: () => void;
+  onNotificationClick: (id: string) => void;
+  demoUserId: string;
+}) {
+  const unread = notifications.filter(n => !n.is_read);
+  const read = notifications.filter(n => n.is_read);
+
+  return (
+    <div style={{
+      position: "absolute", top: "100%", right: 0,
+      width: 340, background: "#fff", border: "1px solid var(--border)",
+      borderRadius: "var(--radius)", boxShadow: "var(--shadow-xl)",
+      zIndex: 100, marginTop: 6,
+    }}>
+      <div style={{ padding: 12, borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h2 style={{ fontSize: 14, margin: 0 }}>Notifications</h2>
+        {unreadCount > 0 && (
+          <button className="btn btn-sm btn-secondary" onClick={onMarkAllAsRead} style={{ padding: "4px 8px", fontSize: 11 }}>
+            Mark all as read
+          </button>
+        )}
+      </div>
+      <div style={{ maxHeight: 400, overflowY: "auto", padding: 8 }}>
+        {notifications.length === 0 ? (
+          <div style={{ padding: 16, fontSize: 13, color: "#6B7280", textAlign: "center" }}>
+            No notifications
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {notifications.map(n => (
+              <div
+                key={n.id}
+                onClick={() => onNotificationClick(n.id)}
+                style={{
+                  padding: 10, borderRadius: "var(--radius-sm)",
+                  background: n.is_read ? "#fff" : "#FEF3C7",
+                  cursor: "pointer", border: `1px solid ${n.is_read ? "var(--border)" : "#F59E0B"}`,
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                  <div style={{ flex: 1, fontSize: 12, fontWeight: 600, color: "#1F2937" }}>{n.title}</div>
+                  <div style={{ fontSize: 10, color: "#9CA3AF" }}>{new Date(n.created_at).toLocaleString()}</div>
+                </div>
+                <div style={{ fontSize: 11, color: "#6B7280", marginTop: 4 }}>{n.message}</div>
+                {n.related_booking_id && (
+                  <div style={{ fontSize: 10, color: "#2563EB", marginTop: 6, fontWeight: 600 }}>
+                    Booking #{n.related_booking_id.slice(-4)} · Click to open
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <div style={{ padding: 8, borderTop: "1px solid var(--border)", textAlign: "right" }}>
+        <button className="btn btn-sm btn-secondary" onClick={onClose}>Close</button>
+      </div>
+    </div>
   );
 }
 
@@ -1260,6 +1339,160 @@ function BookingReports({
   );
 }
 
+/*───────────────────── Notification Center Page ─────────────────────*/
+
+function NotificationCenter({
+  notifications,
+  demoUser,
+  onMarkAsRead,
+  onMarkAllAsRead,
+  onNotificationClick,
+  unreadCount,
+}: {
+  notifications: OpexNotification[];
+  demoUser: ResolvedUser | null;
+  onMarkAsRead: (id: string) => void | Promise<void>;
+  onMarkAllAsRead: () => void | Promise<void>;
+  onNotificationClick: (id: string) => void | Promise<void>;
+  unreadCount: number;
+}) {
+  const [filter, setFilter] = useState<"all" | "unread" | "booking_created" | "booking_approved" | "booking_rejected" | "vehicle_assigned">("all");
+
+  const filtered = notifications.filter(n => {
+    if (filter === "all") return true;
+    if (filter === "unread") return !n.is_read;
+    return n.type === filter;
+  });
+
+  const typeLabel: Record<string, string> = {
+    booking_created: "Booking Created",
+    booking_approved: "Booking Approved",
+    booking_rejected: "Booking Rejected",
+    vehicle_assigned: "Vehicle Assigned",
+  };
+
+  const handleMarkAsRead = async (id: string) => {
+    await onMarkAsRead(id);
+  };
+
+  const handleMarkAllAsRead = async () => {
+    await onMarkAllAsRead();
+  };
+
+  const handleNotificationClick = async (id: string) => {
+    await onNotificationClick(id);
+  };
+
+  return (
+    <div className="page">
+      <PageHeader
+        eyebrow="Notifications"
+        title="Notification Center"
+        subtitle={`${unreadCount} unread · notification history for ${demoUser?.name || "current user"}`}
+      />
+
+      <section className="panel">
+        <div className="panel-head">
+          <div className="panel-head-content">
+            <h2>Notification History</h2>
+            <p>All notifications across booking lifecycle events.</p>
+          </div>
+          <div className="panel-head-actions">
+            {unreadCount > 0 && (
+              <button className="btn btn-sm btn-secondary" onClick={handleMarkAllAsRead}>
+                Mark All as Read
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="panel-body">
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+            <button
+              className={`btn btn-sm ${filter === "all" ? "btn-primary" : "btn-outline"}`}
+              onClick={() => setFilter("all")}
+            >
+              All
+            </button>
+            <button
+              className={`btn btn-sm ${filter === "unread" ? "btn-primary" : "btn-outline"}`}
+              onClick={() => setFilter("unread")}
+            >
+              Unread ({notifications.filter(n => !n.is_read).length})
+            </button>
+            {Object.entries(typeLabel).map(([type, label]) => (
+              <button
+                key={type}
+                className={`btn btn-sm ${filter === type ? "btn-primary" : "btn-outline"}`}
+                onClick={() => setFilter(type as any)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {filtered.length === 0 ? (
+            <div style={{ padding: 24, textAlign: "center", color: "#6B7280" }}>
+              {filter === "all" ? "No notifications yet." : `No ${typeLabel[filter]} notifications.`}
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Type</th><th>Title</th><th>Message</th><th>Booking</th><th>Received</th><th>Status</th><th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(n => (
+                    <tr
+                      key={n.id}
+                      style={{ background: n.is_read ? "#fff" : "#FEF3C7" }}
+                    >
+                      <td style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600, color: "#2563EB" }}>
+                        {typeLabel[n.type] || n.type}
+                      </td>
+                      <td><b style={{ fontSize: 13 }}>{n.title}</b></td>
+                      <td style={{ fontSize: 12, color: "#4B5563" }}>{n.message}</td>
+                      <td>
+                        {n.related_booking_id ? (
+                          <span style={{ fontSize: 11, color: "#2563EB", fontWeight: 600, cursor: "pointer" }} onClick={e => { e.stopPropagation(); handleNotificationClick(n.id); }}>
+                            #{n.related_booking_id.slice(-4)}
+                          </span>
+                        ) : (
+                          <span style={{ color: "#9CA3AF", fontSize: 11 }}>—</span>
+                        )}
+                      </td>
+                      <td style={{ fontSize: 11, color: "#6B7280" }}>{new Date(n.created_at).toLocaleString()}</td>
+                      <td>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10 }}>
+                          <span style={{ width: 6, height: 6, borderRadius: "50%", background: n.is_read ? "#9CA3AF" : "#EF4444" }}></span>
+                          {n.is_read ? "Read" : "Unread"}
+                        </span>
+                      </td>
+                      <td className="actions">
+                        {!n.is_read && (
+                          <button className="btn btn-sm btn-outline" onClick={e => { e.stopPropagation(); handleMarkAsRead(n.id); }}>
+                            Mark Read
+                          </button>
+                        )}
+                        {n.related_booking_id && (
+                          <button className="btn btn-sm btn-view" onClick={e => { e.stopPropagation(); handleNotificationClick(n.id); }}>
+                            Open Booking
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 /*───────────────────── View Details Modal ─────────────────────*/
 
 function ViewDetailsModal({
@@ -1399,6 +1632,7 @@ export default function App() {
   const [mode, setMode] = useState<"DEMO" | "ADDIN_DATA">("DEMO");
   const [myGeotabError, setMyGeotabError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [rejectReason, setRejectReasonState] = useState<{ [id: string]: string }>({});
   const [addInId, setAddInId] = useState<string | null>(() => {
     try {
@@ -1410,6 +1644,8 @@ export default function App() {
   const [addInIdInput, setAddInIdInput] = useState<string>("");
   const [currentMyGeotabUser, setCurrentMyGeotabUser] = useState<{ userName?: string; database?: string; server?: string } | null>(null);
   const [providerError, setProviderError] = useState<string | null>(null);
+  const [notifications, setNotifications] = useState<OpexNotification[]>([]);
+  const [notificationDropdownOpen, setNotificationDropdownOpen] = useState(false);
 
   const onFilterChange = useCallback((key: string, value: string) => {
     setFilters(prev => ({ ...prev, [key]: value }));
@@ -1490,6 +1726,15 @@ export default function App() {
               setDemoUser(matched);
             }
           }
+          // Load notifications for current user
+          if (demoUser && notificationEngine) {
+            notificationEngine.getNotificationsForUser(demoUser.id).then(ns => {
+              if (mounted) setNotifications(ns);
+            });
+            notificationEngine.getUnreadCount(demoUser.id).then(c => {
+              if (mounted) setUnreadCount(c);
+            });
+          }
           setProviderError(null);
         }
       } catch (e) {
@@ -1544,6 +1789,33 @@ export default function App() {
     }
     return bookingDataProvider;
   }, [mode, geotabApi, addInId]);
+
+  const notificationEngine = useMemo(() => {
+    return createNotificationEngine(provider as NotificationDataProvider, provider);
+  }, [provider]);
+
+  /*───────────────────── Auto Refresh Configuration ─────────────────────*/
+  const REFRESH_INTERVALS: Record<string, number> = {
+    Dashboard: 30000,
+    "My Bookings": 15000,
+    "Approval Inbox": 10000,
+    "Asset Availability": 15000,
+    "Booking Reports": 60000,
+  };
+  const activeInterval = REFRESH_INTERVALS[active] || 0;
+
+  const {
+    isRefreshing: refreshIsRefreshing,
+    lastUpdated: refreshLastUpdated,
+    manualRefresh: refreshManualRefresh,
+  } = useAutoRefresh({
+    intervalMs: activeInterval,
+    enabled: activeInterval > 0,
+    onRefresh: () => onLoadData(),
+    onError: (e) => {
+      setMessage({ type: "error", text: `Auto-refresh failed: ${e.message}` });
+    },
+  });
   const pushToastCb = useCallback((type: Toast["type"], text: string) => {
     pushToast(setToasts, type, text);
   }, []);
@@ -1574,8 +1846,16 @@ export default function App() {
       } else if (mode === "ADDIN_DATA" && !addInId) {
         setProviderError("Add-In Id is not configured. Enter your AddInId to use ADDIN_DATA storage.");
       }
+    } finally {
+      // Refresh notifications after data load
+      if (demoUser && notificationEngine) {
+        notificationEngine.getNotificationsForUser(demoUser.id).then(ns => {
+          setNotifications(ns);
+          setUnreadCount(ns.filter(n => !n.is_read).length);
+        });
+      }
     }
-  }, [provider, mode, geotabApi, addInId]);
+  }, [provider, mode, geotabApi, addInId, demoUser, notificationEngine]);
 
   const onResetDemoData = useCallback(async () => {
     setLoading(true);
@@ -1636,24 +1916,61 @@ export default function App() {
       });
       const refreshed = await provider.getBookings();
       setBookings(refreshed);
+      // Notify approvers about new booking request
+      if (notificationEngine) {
+        const approvers = await provider.getApprovers();
+        await notificationEngine.onBookingCreated(created, approvers);
+        // Refresh notifications for current user
+        const ns = await notificationEngine.getNotificationsForUser(demoUser.id);
+        setNotifications(ns);
+        setUnreadCount(ns.filter(n => !n.is_read).length);
+      }
       setMessage({ type: "success", text: `Booking #${created.id.slice(-4)} created successfully as PENDING_APPROVAL.` });
     } catch (e) {
       setMessage({ type: "error", text: e instanceof Error ? e.message : "Failed to create booking." });
     }
-  }, [demoUser, provider]);
+  }, [demoUser, provider, notificationEngine]);
 
   const onApprove = useCallback(async (id: string) => {
+    const before = bookings.find(b => b.id === id);
     await updateBookingStatus(id, "APPROVED", demoUser?.id ?? undefined);
-  }, [updateBookingStatus, demoUser]);
+    const updated = await provider.getBookings();
+    setBookings(updated);
+    // Notify requester about approval
+    if (notificationEngine) {
+      const booking = updated.find(b => b.id === id);
+      const approver = demoUser;
+      if (booking && notificationEngine) {
+        await notificationEngine.onBookingApproved(booking, approver);
+        const ns = await notificationEngine.getNotificationsForUser(demoUser!.id);
+        setNotifications(ns);
+        setUnreadCount(ns.filter(n => !n.is_read).length);
+      }
+    }
+  }, [updateBookingStatus, demoUser, provider, bookings, notificationEngine]);
 
   const onReject = useCallback((id: string) => {
     setRejectingId(id);
   }, []);
 
   const onConfirmReject = useCallback(async (id: string) => {
+    const before = bookings.find(b => b.id === id);
     await updateBookingStatus(id, "REJECTED", demoUser?.id ?? undefined, rejectReason[id] ?? undefined);
+    const updated = await provider.getBookings();
+    setBookings(updated);
+    // Notify requester about rejection
+    if (notificationEngine) {
+      const booking = updated.find(b => b.id === id);
+      const approver = demoUser;
+      if (booking && notificationEngine) {
+        await notificationEngine.onBookingRejected(booking, approver, rejectReason[id] ?? undefined);
+        const ns = await notificationEngine.getNotificationsForUser(demoUser!.id);
+        setNotifications(ns);
+        setUnreadCount(ns.filter(n => !n.is_read).length);
+      }
+    }
     setRejectingId(null);
-  }, [updateBookingStatus, demoUser, rejectReason]);
+  }, [updateBookingStatus, demoUser, provider, bookings, rejectReason, notificationEngine]);
 
   const onCancelReject = useCallback(() => {
     setRejectingId(null);
@@ -1663,7 +1980,20 @@ export default function App() {
     const b = bookings.find(x => x.id === id);
     if (!b || b.status !== "APPROVED") return;
     await updateBookingStatus(id, "ASSIGNED");
-  }, [bookings, updateBookingStatus]);
+    const updated = await provider.getBookings();
+    setBookings(updated);
+    // Notify requester about vehicle assignment
+    if (notificationEngine) {
+      const booking = updated.find(b => b.id === id);
+      const assigner = demoUser;
+      if (booking && notificationEngine) {
+        await notificationEngine.onVehicleAssigned(booking, assigner);
+        const ns = await notificationEngine.getNotificationsForUser(demoUser!.id);
+        setNotifications(ns);
+        setUnreadCount(ns.filter(n => !n.is_read).length);
+      }
+    }
+  }, [bookings, updateBookingStatus, demoUser, provider, notificationEngine]);
 
   const onComplete = useCallback(async (id: string) => {
     const b = bookings.find(x => x.id === id);
@@ -1803,6 +2133,42 @@ export default function App() {
           assets={assets}
         />
       );
+      case "Notifications": return (
+        <NotificationCenter
+          notifications={notifications}
+          demoUser={demoUser}
+          unreadCount={unreadCount}
+          onMarkAsRead={async (id: string) => {
+            if (notificationEngine) {
+              await notificationEngine.markAsRead(id);
+              const ns = await notificationEngine.getNotificationsForUser(demoUser!.id);
+              setNotifications(ns);
+              setUnreadCount(ns.filter(n => !n.is_read).length);
+            }
+          }}
+          onMarkAllAsRead={async () => {
+            if (notificationEngine && demoUser) {
+              await notificationEngine.markAllAsRead(demoUser.id);
+              const ns = await notificationEngine.getNotificationsForUser(demoUser.id);
+              setNotifications(ns);
+              setUnreadCount(0);
+            }
+          }}
+          onNotificationClick={async (id: string) => {
+            const n = notifications.find(x => x.id === id);
+            if (n?.related_booking_id) {
+              setSelectedBooking(bookings.find(b => b.id === n.related_booking_id) || null);
+              setActive("My Bookings");
+              if (notificationEngine) {
+                await notificationEngine.markAsRead(id);
+                const ns = await notificationEngine.getNotificationsForUser(demoUser!.id);
+                setNotifications(ns);
+                setUnreadCount(ns.filter(x => !x.is_read).length);
+              }
+            }
+          }}
+        />
+      );
       case "Asset Availability": return (
         <AssetAvailability assets={assets} bookings={availabilityBookings} onExport={onExportFleet}
           filters={filters}
@@ -1929,6 +2295,67 @@ export default function App() {
               </div>
             )}
 
+            {/* Notification Bell */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 12, borderLeft: "1px solid var(--border)" }}>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => setNotificationDropdownOpen(!notificationDropdownOpen)}
+                style={{ position: "relative", padding: 6, display: "flex", alignItems: "center", justifyContent: "center" }}
+              >
+                <span style={{ fontSize: 16 }}>𔔡</span>
+                {unreadCount > 0 && (
+                  <span style={{
+                    position: "absolute", top: 2, right: 2,
+                    background: "#EF4444", color: "#fff", fontSize: 10, fontWeight: 700,
+                    borderRadius: "50%", minWidth: 16, height: 16,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
+                )}
+              </button>
+              {notificationDropdownOpen && (
+                <NotificationDropdown
+                  notifications={notifications}
+                  unreadCount={unreadCount}
+                  onMarkAsRead={async (id: string) => {
+                    if (notificationEngine) {
+                      await notificationEngine.markAsRead(id);
+                      const ns = await notificationEngine.getNotificationsForUser(demoUser!.id);
+                      setNotifications(ns);
+                      setUnreadCount(ns.filter(n => !n.is_read).length);
+                    }
+                  }}
+                  onMarkAllAsRead={async () => {
+                    if (notificationEngine && demoUser) {
+                      await notificationEngine.markAllAsRead(demoUser.id);
+                      const ns = await notificationEngine.getNotificationsForUser(demoUser.id);
+                      setNotifications(ns);
+                      setUnreadCount(0);
+                    }
+                    setNotificationDropdownOpen(false);
+                  }}
+                  onClose={() => setNotificationDropdownOpen(false)}
+                  onNotificationClick={async (id: string) => {
+                    const n = notifications.find(x => x.id === id);
+                    if (n?.related_booking_id) {
+                      setSelectedBooking(bookings.find(b => b.id === n.related_booking_id) || null);
+                      setActive("My Bookings");
+                      setNotificationDropdownOpen(false);
+                      // Mark as read
+                      if (notificationEngine) {
+                        await notificationEngine.markAsRead(id);
+                        const ns = await notificationEngine.getNotificationsForUser(demoUser!.id);
+                        setNotifications(ns);
+                        setUnreadCount(ns.filter(x => !x.is_read).length);
+                      }
+                    }
+                  }}
+                  demoUserId={demoUser?.id ?? ""}
+                />
+              )}
+            </div>
+
             <div className="user-badge">
               {demoUser ? (
                 <>
@@ -1949,13 +2376,37 @@ export default function App() {
               {providerError}
             </div>
           )}
+
+          {/* Last Updated indicator */}
+          {activeInterval > 0 && (
+            <div style={{ marginLeft: 16, padding: 6, fontSize: "var(--text-xs)", color: "#6B7280", background: "#F8FAFC", borderRadius: 4, border: "1px solid var(--border)", whiteSpace: "nowrap" }}>
+              <span style={{ fontWeight: 600, color: "#2563EB" }}>⟳</span>
+              {refreshLastUpdated ? `Last updated: ${refreshLastUpdated.toLocaleTimeString()}` : "Last updated: —"}
+              {refreshIsRefreshing ? " · refreshing…" : ""}
+            </div>
+          )}
+
+          {/* Manual Refresh button */}
+          {activeInterval > 0 && (
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={refreshManualRefresh}
+              disabled={refreshIsRefreshing}
+              style={{ marginLeft: 8, padding: "6px 10px", fontSize: "var(--text-xs)" }}
+            >
+              {refreshIsRefreshing ? "⟳ Refreshing…" : "⟳ Refresh"}
+            </button>
+          )}
         </div>
 
         <nav className="tab-nav">
           {NAV_ITEMS.map(item => {
             const isActive = active === item.key;
-            const badge = item.key === "Approval Inbox" && pendingCount > 0 ? (
-              <span className="tab-badge">{pendingCount}</span>
+            const pendingBadge = item.key === "Approval Inbox" && pendingCount > 0 ? pendingCount : 0;
+            const notifBadge = item.key === "Approval Inbox" && unreadCount > 0 ? unreadCount : 0;
+            const totalBadge = pendingBadge + notifBadge;
+            const badge = totalBadge > 0 ? (
+              <span className="tab-badge">{totalBadge}</span>
             ) : null;
             return (
               <button

@@ -11,6 +11,10 @@ import type {
   ResolvedBooking,
   ResolvedUser,
   BookingDataProvider,
+  NotificationDataProvider,
+  OpexNotification,
+  OpexBookingAudit,
+  NotificationType,
 } from "./types";
 import {
   mockMyGeotabDevices,
@@ -23,6 +27,8 @@ import {
 
 const STORAGE_KEY = "opex-vbm-demo-bookings";
 const RESET_KEY = "opex-vbm-demo-reset";
+const NOTIFICATION_STORAGE_KEY = "opex-vbm-demo-notifications";
+const AUDIT_STORAGE_KEY = "opex-vbm-demo-audit";
 
 /*───────────────────── Helper: resolve master data references ─────────────────────*/
 
@@ -79,13 +85,15 @@ function resolveBooking(
 }
 
 /*───────────────────── Local Data Provider Implementation ─────────────────────*/
-export class LocalBookingDataProvider implements BookingDataProvider {
+export class LocalBookingDataProvider implements BookingDataProvider, NotificationDataProvider {
   private devices: MyGeotabDevice[];
   private users: MyGeotabUser[];
   private groups: MyGeotabGroup[];
   private statusData: MyGeotabStatusData[];
   private logRecords: MyGeotabLogRecord[];
   private bookings: OpexBooking[];
+  private notifications: OpexNotification[];
+  private auditRecords: OpexBookingAudit[];
 
   constructor() {
     this.devices = [...mockMyGeotabDevices];
@@ -94,6 +102,8 @@ export class LocalBookingDataProvider implements BookingDataProvider {
     this.statusData = [...mockMyGeotabStatusData];
     this.logRecords = [...mockMyGeotabLogRecords];
     this.bookings = this.loadBookingsFromStorage();
+    this.notifications = this.loadNotificationsFromStorage();
+    this.auditRecords = this.loadAuditRecordsFromStorage();
   }
 
   /*───────────────────── localStorage persistence ─────────────────────*/
@@ -114,6 +124,46 @@ export class LocalBookingDataProvider implements BookingDataProvider {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.bookings));
     } catch {
       // localStorage may be unavailable in some environments
+    }
+  }
+
+  private loadNotificationsFromStorage(): OpexNotification[] {
+    try {
+      const raw = localStorage.getItem(NOTIFICATION_STORAGE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as OpexNotification[];
+      if (!Array.isArray(parsed)) return [];
+      return parsed;
+    } catch {
+      return [];
+    }
+  }
+
+  private saveNotificationsToStorage(): void {
+    try {
+      localStorage.setItem(NOTIFICATION_STORAGE_KEY, JSON.stringify(this.notifications));
+    } catch {
+      // localStorage may be unavailable
+    }
+  }
+
+  private loadAuditRecordsFromStorage(): OpexBookingAudit[] {
+    try {
+      const raw = localStorage.getItem(AUDIT_STORAGE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as OpexBookingAudit[];
+      if (!Array.isArray(parsed)) return [];
+      return parsed;
+    } catch {
+      return [];
+    }
+  }
+
+  private saveAuditRecordsToStorage(): void {
+    try {
+      localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(this.auditRecords));
+    } catch {
+      // localStorage may be unavailable
     }
   }
 
@@ -210,11 +260,135 @@ export class LocalBookingDataProvider implements BookingDataProvider {
 
   async resetDemoData(): Promise<void> {
     this.bookings = [...mockOpexBookings];
+    this.notifications = [];
+    this.auditRecords = [];
     this.saveBookingsToStorage();
+    this.saveNotificationsToStorage();
+    this.saveAuditRecordsToStorage();
+  }
+
+  /*───────────────────── Notification operations ─────────────────────*/
+  async getNotifications(userId: string, opts?: { limit?: number; offset?: number; unreadOnly?: boolean; type?: NotificationType }): Promise<OpexNotification[]> {
+    let result = this.notifications
+      .filter(n => n.recipient_user_id === userId)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    if (opts?.unreadOnly) result = result.filter(n => !n.is_read);
+    if (opts?.type) result = result.filter(n => n.type === opts.type);
+    const start = opts?.offset ?? 0;
+    const end = opts?.limit !== undefined ? start + opts.limit : result.length;
+    return result.slice(start, end);
+  }
+
+  async getUnreadCount(userId: string): Promise<number> {
+    return this.notifications.filter(n => n.recipient_user_id === userId && !n.is_read).length;
+  }
+
+  async createNotification(input: {
+    eventId: string;
+    idempotencyKey: string;
+    type: NotificationType;
+    recipient_user_id: string;
+    related_booking_id: string | null;
+    title: string;
+    message: string;
+  }): Promise<OpexNotification> {
+    // Duplicate prevention: skip if a notification with this idempotency key already exists
+    const existing = await this.findByIdempotencyKey(input.idempotencyKey);
+    if (existing) return existing;
+
+    const now = new Date().toISOString();
+    const notification: OpexNotification = {
+      id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      eventId: input.eventId,
+      idempotencyKey: input.idempotencyKey,
+      type: input.type,
+      recipient_user_id: input.recipient_user_id,
+      related_booking_id: input.related_booking_id,
+      title: input.title,
+      message: input.message,
+      is_read: false,
+      delivery_status: "pending",
+      delivered_at: null,
+      created_at: now,
+      updated_at: now,
+    };
+    this.notifications.push(notification);
+    this.saveNotificationsToStorage();
+    return notification;
+  }
+
+  async findByIdempotencyKey(idempotencyKey: string): Promise<OpexNotification | null> {
+    const found = this.notifications.find(n => n.idempotencyKey === idempotencyKey);
+    return found ?? null;
+  }
+
+  async markAsRead(notificationId: string): Promise<void> {
+    const idx = this.notifications.findIndex(n => n.id === notificationId);
+    if (idx === -1) return;
+    this.notifications[idx] = { ...this.notifications[idx], is_read: true, updated_at: new Date().toISOString() };
+    this.saveNotificationsToStorage();
+  }
+
+  async markAllAsRead(userId: string): Promise<void> {
+    const now = new Date().toISOString();
+    this.notifications = this.notifications.map(n =>
+      n.recipient_user_id === userId && !n.is_read
+        ? { ...n, is_read: true, updated_at: now }
+        : n
+    );
+    this.saveNotificationsToStorage();
+  }
+
+  async markDeliveryStatus(notificationId: string, status: "pending" | "delivered" | "failed"): Promise<void> {
+    const idx = this.notifications.findIndex(n => n.id === notificationId);
+    if (idx === -1) return;
+    this.notifications[idx] = {
+      ...this.notifications[idx],
+      delivery_status: status,
+      delivered_at: status === "delivered" ? new Date().toISOString() : this.notifications[idx].delivered_at,
+      updated_at: new Date().toISOString(),
+    };
+    this.saveNotificationsToStorage();
+  }
+
+  /*───────────────────── Audit operations ─────────────────────*/
+  async createAuditRecord(input: {
+    booking_id: string;
+    action: string;
+    actor_user_id: string;
+    previous_status: string | null;
+    new_status: string | null;
+    details: string | null;
+  }): Promise<void> {
+    const now = new Date().toISOString();
+    const record: OpexBookingAudit = {
+      id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      booking_id: input.booking_id,
+      action: input.action,
+      actor_user_id: input.actor_user_id,
+      previous_status: input.previous_status,
+      new_status: input.new_status,
+      details: input.details,
+      created_at: now,
+    };
+    this.auditRecords.push(record);
+    this.saveAuditRecordsToStorage();
+  }
+
+  async getAuditRecords(bookingId: string): Promise<OpexBookingAudit[]> {
+    return this.auditRecords
+      .filter(r => r.booking_id === bookingId)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }
 
   isLive(): boolean {
     return false;
+  }
+
+  async getApprovers(): Promise<ResolvedUser[]> {
+    return this.users
+      .filter(u => u.role === "APPROVER")
+      .map(resolveUser);
   }
 }
 

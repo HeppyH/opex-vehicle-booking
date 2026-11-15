@@ -1,16 +1,16 @@
 # GitHub Pages deployment (Phase 1.3)
 
-**Repository:** https://github.com/HeppyH/opex-vehicle-booking  
+**Repository:** https://github.com/HeppyH/opexassetbooking  
 **Branch:** `main`  
 **Target tenant:** `opex_trial`  
-**Target URL:** https://HeppyH.github.io/opex-vehicle-booking/  
+**Target URL:** https://HeppyH.github.io/opexassetbooking/  
 **Hosting:** GitHub Pages (static only)
 
 GitHub Pages serves the frontend only. Cloudflare Workers and PostgreSQL are **not** run on GitHub Pages; backend integration remains ready for a future Cloudflare Workers deployment via `VITE_API_BASE_URL`.
 
 ## Build configuration
 
-- Vite base path: `/opex-vehicle-booking/` (`apps/web/vite.config.ts`)
+- Vite base path: `/opexassetbooking/` (`apps/web/vite.config.ts`)
 - Build command: `npm install && npm --workspace apps/web run build`
 - Output: `apps/web/dist`
 - SPA fallback: workflow copies `dist/index.html` to `dist/404.html` for GitHub Pages
@@ -35,25 +35,25 @@ On push to `main` (or manual dispatch) it:
 Perform these steps in the GitHub repository (requires admin/maintainer permissions). **Do not deploy without approval.**
 
 1. **Push/merge to `main`**  
-   Ensure the Phase 1.3 changes (including `.github/workflows/deploy-pages.yml`, Vite base config, and docs) are on the `main` branch of `https://github.com/HeppyH/opex-vehicle-booking`.
+   Ensure the Phase 1.3 changes (including `.github/workflows/deploy-pages.yml`, Vite base config, and docs) are on the `main` branch of `https://github.com/HeppyH/opexassetbooking`.
 
 2. **Enable GitHub Pages with Actions as the source**
-   - Go to: `https://github.com/HeppyH/opex-vehicle-booking/settings/pages`
+   - Go to: `https://github.com/HeppyH/opexassetbooking/settings/pages`
    - Under **Build and deployment → Source**, select **GitHub Actions**.
    - Save if prompted. (No branch/folder selection is needed when using Actions.)
 
 3. **Allow Actions to deploy Pages (if required by org/repo policy)**
-   - Go to: `https://github.com/HeppyH/opex-vehicle-booking/settings/actions`
+   - Go to: `https://github.com/HeppyH/opexassetbooking/settings/actions`
    - Ensure Actions are enabled and workflow permissions allow the Pages deployment (the workflow requests `pages: write` and `id-token: write`).
    - If your organization restricts Pages deployments, approve/allow GitHub Actions deployments in org/repo policies as applicable.
 
 4. **Run the workflow**
-   - Go to: `https://github.com/HeppyH/opex-vehicle-booking/actions/workflows/deploy-pages.yml`
+   - Go to: `https://github.com/HeppyH/opexassetbooking/actions/workflows/deploy-pages.yml`
    - Click **Run workflow** → select branch `main` → **Run workflow** (or push a commit to `main` to trigger automatically).
    - Wait for the **build** and **deploy** jobs to complete successfully.
 
 5. **Verify the site**
-   - Open: https://HeppyH.github.io/opex-vehicle-booking/
+   - Open: https://HeppyH.github.io/opexassetbooking/
    - Confirm assets load (no 404s in browser console), the UI renders, and the status shows **Backend not connected** when no API is configured.
    - If you later deploy a Cloudflare Worker API, set `VITE_API_BASE_URL` as a repository/environment variable or rebuild with it configured (do not store credentials in frontend code).
 
@@ -69,7 +69,7 @@ npm test
 npm --workspace apps/web run build
 ```
 
-Confirm built assets in `apps/web/dist` reference `/opex-vehicle-booking/` (e.g. `/opex-vehicle-booking/assets/...`). You can preview locally with:
+Confirm built assets in `apps/web/dist` reference `/opexassetbooking/` (e.g. `/opexassetbooking/assets/...`). You can preview locally with:
 ```bash
 npm --workspace apps/web run preview
 ```

@@ -111,7 +111,7 @@ test("CORS preflight from the GitHub Pages origin is allowed with the Geotab hea
 });
 
 test("other origins are rejected, including the full Pages URL with a path", async () => {
-  for (const origin of ["https://example.com", "https://heppyh.github.io/opex-vehicle-booking", "http://heppyh.github.io"]) {
+  for (const origin of ["https://example.com", "https://heppyh.github.io/opexassetbooking", "http://heppyh.github.io"]) {
     const res = await app.request("/api/health", { headers: { Origin: origin } }, env);
     assert.equal(res.status, 403, origin);
     assert.deepEqual(await res.json(), { error: "ORIGIN_NOT_ALLOWED" });

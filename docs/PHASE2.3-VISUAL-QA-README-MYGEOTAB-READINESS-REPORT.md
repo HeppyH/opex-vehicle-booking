@@ -130,13 +130,13 @@ window.geotab.addin.opexVehicleBooking = () => ({
 
 ### GitHub Pages frontend URL
 
-- `https://heppyh.github.io/opex-vehicle-booking/`
+- `https://heppyh.github.io/opexassetbooking/`
 - **PASS**
 
 ### Base path configuration
 
-- `apps/web/vite.config.ts:5` — `base: "/opex-vehicle-booking/"`.
-- Matches GitHub Pages project-site URL `https://heppyh.github.io/opex-vehicle-booking/`.
+- `apps/web/vite.config.ts:5` — `base: "/opexassetbooking/"`.
+- Matches GitHub Pages project-site URL `https://heppyh.github.io/opexassetbooking/`.
 - Correct for production deployment; dev server runs at root (`/`) during local development.
 - **PASS**
 
@@ -175,8 +175,8 @@ Manual steps to register the OPEX VBM Add-In in MyGeotab (reference only — not
 2. **Navigate to Add-Ins** → **Manage Add-Ins** → **Add New** (or equivalent portal path for your MyGeotab version).
 3. **Enter the Add-In details:**
    - Name: `OPEX Vehicle Booking`
-   - Add-In URL: `https://heppyh.github.io/opex-vehicle-booking/` (GitHub Pages frontend)
-   - Base path: `/opex-vehicle-booking/` (must match `vite.config.ts` `base`)
+   - Add-In URL: `https://heppyh.github.io/opexassetbooking/` (GitHub Pages frontend)
+   - Base path: `/opexassetbooking/` (must match `vite.config.ts` `base`)
    - Custom page / iframe URL: same as Add-In URL
 4. **Record the issued Add-InId** (GUID-like string returned by MyGeotab upon registration).
 5. **Configure required database access** for the Add-In: read access to `Device`, `User`, and `Group` entities in the `opex_trial` database (read-only; no write access needed).

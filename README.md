@@ -2,8 +2,8 @@
 
 **Status:** implementation scaffold, not a production-ready deployment.  
 **Target hosting:** GitHub Pages (frontend) + Cloudflare Worker on `workers.dev` (API) + Neon PostgreSQL via Cloudflare Hyperdrive.  
-**Proposed Add-In domain:** `https://heppyh.github.io/opex-vehicle-booking/`  
-**Frontend URL:** `https://heppyh.github.io/opex-vehicle-booking/`  
+**Proposed Add-In domain:** `https://heppyh.github.io/opexassetbooking/`  
+**Frontend URL:** `https://heppyh.github.io/opexassetbooking/`  
 **Deployment guide:** [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)  
 **Tenant in this deployment request:** `opex_trial`.
 
@@ -78,7 +78,7 @@ There is no permissive mock-auth mode by default. Until a real, verified authent
 ## Cloudflare deployment overview
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Personal testing split:
-- GitHub Pages: static React frontend at `https://heppyh.github.io/opex-vehicle-booking/`.
+- GitHub Pages: static React frontend at `https://heppyh.github.io/opexassetbooking/`.
 - Cloudflare Worker `opex-vbm-api`: API at `https://opex-vbm-api.<account-subdomain>.workers.dev`, connected to PostgreSQL through Hyperdrive.
 - Neon PostgreSQL (project `opex-vbm-dev`, database `opex_vbm_dev`). Cloudflare Hyperdrive is a connection pooling/connection path, not the database itself.
 

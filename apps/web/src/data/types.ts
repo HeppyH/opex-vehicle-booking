@@ -141,4 +141,71 @@ export interface BookingDataProvider {
   deleteBooking(id: string): Promise<void>;
   resetDemoData(): Promise<void>;
   isLive(): boolean;
+  getApprovers(): Promise<ResolvedUser[]>;
+}
+
+/*───────────────────── Notification Types ─────────────────────*/
+
+export type NotificationType =
+  | "booking_created"
+  | "booking_approved"
+  | "booking_rejected"
+  | "vehicle_assigned"
+  | "booking_cancelled";
+
+export interface OpexNotification {
+  id: string;
+  eventId: string;
+  idempotencyKey: string;
+  type: NotificationType;
+  recipient_user_id: string;
+  related_booking_id: string | null;
+  title: string;
+  message: string;
+  is_read: boolean;
+  delivery_status: "pending" | "delivered" | "failed";
+  delivered_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OpexBookingAudit {
+  id: string;
+  booking_id: string;
+  action: string;
+  actor_user_id: string;
+  previous_status: string | null;
+  new_status: string | null;
+  details: string | null;
+  created_at: string;
+}
+
+/*───────────────────── Notification Provider Interface ─────────────────────*/
+
+export interface NotificationDataProvider {
+  getNotifications(userId: string, opts?: { limit?: number; offset?: number; unreadOnly?: boolean; type?: NotificationType }): Promise<OpexNotification[]>;
+  getUnreadCount(userId: string): Promise<number>;
+  createNotification(input: {
+    eventId: string;
+    idempotencyKey: string;
+    type: NotificationType;
+    recipient_user_id: string;
+    related_booking_id: string | null;
+    title: string;
+    message: string;
+  }): Promise<OpexNotification>;
+  findByIdempotencyKey(idempotencyKey: string): Promise<OpexNotification | null>;
+  markAsRead(notificationId: string): Promise<void>;
+  markAllAsRead(userId: string): Promise<void>;
+  markDeliveryStatus(notificationId: string, status: "pending" | "delivered" | "failed"): Promise<void>;
+  createAuditRecord(input: {
+    booking_id: string;
+    action: string;
+    actor_user_id: string;
+    previous_status: string | null;
+    new_status: string | null;
+    details: string | null;
+  }): Promise<void>;
+  getAuditRecords(bookingId: string): Promise<OpexBookingAudit[]>;
+  isLive(): boolean;
 }
