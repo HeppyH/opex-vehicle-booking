@@ -4,7 +4,7 @@
 
 - MyGeotab database: `opex_trial`
 - Tenant URL: `https://my.geotab.com/opex_trial/`
-- Add-In frontend URL: `https://heppyh.github.io/opex-vehicle-booking/`
+- Add-In frontend URL: `https://heppyh.github.io/opexassetbooking/`
 - Frontend: GitHub Pages
 - API: Cloudflare Workers
 - Database: PostgreSQL via Cloudflare Hyperdrive
@@ -45,7 +45,7 @@ The externally hosted Add-In URL must be publicly reachable over HTTPS and must 
 
 ## Registration checklist
 
-1. Deploy the frontend to `https://heppyh.github.io/opex-vehicle-booking/`.
+1. Deploy the frontend to `https://heppyh.github.io/opexassetbooking/`.
 2. Confirm the URL loads over HTTPS in a normal browser.
 3. Sign in to `https://my.geotab.com/opex_trial/` with Add-In administration permission.
 4. Open System → Settings → Add-Ins and add the JSON from `geotab/opex-vbm-config.json`.

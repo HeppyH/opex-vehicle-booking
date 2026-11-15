@@ -2,6 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./ui/App";
 import "./ui/styles.css";
+import "./serviceAddin"; // Registers MyGeotab Service Add-In entry point (geotab.addin.service)
 
 type GeotabApi = {
   call?: (method: string, params: Record<string, unknown>, success: (result: unknown) => void, error?: (error: unknown) => void) => void;
@@ -16,7 +17,7 @@ type AddInLifecycle = {
 
 declare global {
   interface Window {
-    geotab?: { addin?: Record<string, () => AddInLifecycle> };
+    geotab?: { addin?: Record<string, () => AddInLifecycle> & { service?: (service: unknown) => void } };
   }
 }
 

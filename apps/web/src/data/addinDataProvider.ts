@@ -13,6 +13,10 @@ import type {
   ResolvedBooking,
   ResolvedUser,
   BookingDataProvider,
+  NotificationDataProvider,
+  OpexNotification,
+  OpexBookingAudit,
+  NotificationType,
 } from "./types";
 
 /*───────────────────── Geotab API type (Add-In context) ─────────────────────*/
@@ -24,6 +28,29 @@ type GeotabApi = {
 
 const MAX_DETAILS_CHARS = 10000;
 const DEFAULT_GROUP_ID = "GroupCompanyId";
+const NOTIFICATION_GROUP_ID = DEFAULT_GROUP_ID;
+const AUDIT_GROUP_ID = DEFAULT_GROUP_ID;
+
+function serializeNotification(n: OpexNotification): string {
+  const json = JSON.stringify(n);
+  if (json.length > MAX_DETAILS_CHARS) {
+    throw new Error(`ADDIN_DATA_DETAILS_EXCEEDED: ${json.length} characters (max ${MAX_DETAILS_CHARS})`);
+  }
+  return json;
+}
+function deserializeNotification(details: string): OpexNotification {
+  return JSON.parse(details) as OpexNotification;
+}
+function serializeAudit(a: OpexBookingAudit): string {
+  const json = JSON.stringify(a);
+  if (json.length > MAX_DETAILS_CHARS) {
+    throw new Error(`ADDIN_DATA_DETAILS_EXCEEDED: ${json.length} characters (max ${MAX_DETAILS_CHARS})`);
+  }
+  return json;
+}
+function deserializeAudit(details: string): OpexBookingAudit {
+  return JSON.parse(details) as OpexBookingAudit;
+}
 
 /*───────────────────── Raw MyGeotab record shapes ─────────────────────*/
 
@@ -116,7 +143,7 @@ function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
 
 /*───────────────────── AddInData Booking Data Provider ─────────────────────*/
 
-export class AddInDataBookingDataProvider implements BookingDataProvider {
+export class AddInDataBookingDataProvider implements BookingDataProvider, NotificationDataProvider {
   private readonly api: GeotabApi | null;
   private readonly addInId: string | null;
   private readonly groupId: string;
@@ -298,8 +325,225 @@ export class AddInDataBookingDataProvider implements BookingDataProvider {
     // DEMO mode uses LocalBookingDataProvider.resetDemoData().
   }
 
+  /*───────────────────── Notification operations (AddInData) ─────────────────────*/
+  async getNotifications(userId: string, opts?: { limit?: number; offset?: number; unreadOnly?: boolean; type?: NotificationType }): Promise<OpexNotification[]> {
+    const records = await this.apiCall<AddInDataRecord[]>("Get", {
+      typeName: "AddInData",
+      search: { addInId: this.addInId },
+    });
+    return (records || [])
+      .map(r => deserializeNotification(r.details))
+      .filter(n => n.recipient_user_id === userId)
+      .filter(n => (opts?.unreadOnly ? !n.is_read : true))
+      .filter(n => (opts?.type ? n.type === opts.type : true))
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(opts?.offset ?? 0, opts?.offset ?? 0 + (opts?.limit ?? Infinity));
+  }
+
+  async getUnreadCount(userId: string): Promise<number> {
+    const records = await this.apiCall<AddInDataRecord[]>("Get", {
+      typeName: "AddInData",
+      search: { addInId: this.addInId },
+    });
+    return (records || [])
+      .map(r => deserializeNotification(r.details))
+      .filter(n => n.recipient_user_id === userId && !n.is_read).length;
+  }
+
+  async createNotification(input: {
+    eventId: string;
+    idempotencyKey: string;
+    type: NotificationType;
+    recipient_user_id: string;
+    related_booking_id: string | null;
+    title: string;
+    message: string;
+  }): Promise<OpexNotification> {
+    // Duplicate prevention: skip if a notification with this idempotency key already exists
+    const existing = await this.findByIdempotencyKey(input.idempotencyKey);
+    if (existing) return existing;
+
+    const now = new Date().toISOString();
+    const notification: OpexNotification = {
+      id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      eventId: input.eventId,
+      idempotencyKey: input.idempotencyKey,
+      type: input.type,
+      recipient_user_id: input.recipient_user_id,
+      related_booking_id: input.related_booking_id,
+      title: input.title,
+      message: input.message,
+      is_read: false,
+      delivery_status: "pending",
+      delivered_at: null,
+      created_at: now,
+      updated_at: now,
+    };
+    const details = serializeNotification(notification);
+    await this.apiCall<{ id?: string }>("Add", {
+      typeName: "AddInData",
+      entity: {
+        addInId: this.addInId,
+        details,
+        groups: [{ id: NOTIFICATION_GROUP_ID }],
+      },
+    });
+    return notification;
+  }
+
+  async findByIdempotencyKey(idempotencyKey: string): Promise<OpexNotification | null> {
+    const records = await this.apiCall<AddInDataRecord[]>("Get", {
+      typeName: "AddInData",
+      search: { addInId: this.addInId },
+    });
+    for (const record of records || []) {
+      try {
+        const n = deserializeNotification(record.details);
+        if (n.idempotencyKey === idempotencyKey) return n;
+      } catch {
+        // Skip malformed records
+      }
+    }
+    return null;
+  }
+
+  async markAsRead(notificationId: string): Promise<void> {
+    const records = await this.apiCall<AddInDataRecord[]>("Get", {
+      typeName: "AddInData",
+      search: { addInId: this.addInId },
+    });
+    const record = (records || []).find(r => {
+      try {
+        return deserializeNotification(r.details).id === notificationId;
+      } catch {
+        return false;
+      }
+    });
+    if (!record) return;
+    const n = deserializeNotification(record.details);
+    n.is_read = true;
+    n.updated_at = new Date().toISOString();
+    await this.apiCall<unknown>("Set", {
+      typeName: "AddInData",
+      entity: {
+        addInId: this.addInId,
+        id: record.id,
+        details: serializeNotification(n),
+        groups: [{ id: NOTIFICATION_GROUP_ID }],
+      },
+    });
+  }
+
+  async markAllAsRead(userId: string): Promise<void> {
+    const records = await this.apiCall<AddInDataRecord[]>("Get", {
+      typeName: "AddInData",
+      search: { addInId: this.addInId },
+    });
+    const now = new Date().toISOString();
+    for (const record of records || []) {
+      try {
+        const n = deserializeNotification(record.details);
+        if (n.recipient_user_id === userId && !n.is_read) {
+          n.is_read = true;
+          n.updated_at = now;
+          await this.apiCall<unknown>("Set", {
+            typeName: "AddInData",
+            entity: {
+              addInId: this.addInId,
+              id: record.id,
+              details: serializeNotification(n),
+              groups: [{ id: NOTIFICATION_GROUP_ID }],
+            },
+          });
+        }
+      } catch {
+        // Skip malformed records
+      }
+    }
+  }
+
+  async markDeliveryStatus(notificationId: string, status: "pending" | "delivered" | "failed"): Promise<void> {
+    const records = await this.apiCall<AddInDataRecord[]>("Get", {
+      typeName: "AddInData",
+      search: { addInId: this.addInId },
+    });
+    const record = (records || []).find(r => {
+      try {
+        return deserializeNotification(r.details).id === notificationId;
+      } catch {
+        return false;
+      }
+    });
+    if (!record) return;
+    const n = deserializeNotification(record.details);
+    n.delivery_status = status;
+    n.delivered_at = status === "delivered" ? new Date().toISOString() : n.delivered_at;
+    n.updated_at = new Date().toISOString();
+    await this.apiCall<unknown>("Set", {
+      typeName: "AddInData",
+      entity: {
+        addInId: this.addInId,
+        id: record.id,
+        details: serializeNotification(n),
+        groups: [{ id: NOTIFICATION_GROUP_ID }],
+      },
+    });
+  }
+
+  /*───────────────────── Audit operations (AddInData) ─────────────────────*/
+  async createAuditRecord(input: {
+    booking_id: string;
+    action: string;
+    actor_user_id: string;
+    previous_status: string | null;
+    new_status: string | null;
+    details: string | null;
+  }): Promise<void> {
+    const now = new Date().toISOString();
+    const record: OpexBookingAudit = {
+      id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      booking_id: input.booking_id,
+      action: input.action,
+      actor_user_id: input.actor_user_id,
+      previous_status: input.previous_status,
+      new_status: input.new_status,
+      details: input.details,
+      created_at: now,
+    };
+    const detailsStr = serializeAudit(record);
+    await this.apiCall<{ id?: string }>("Add", {
+      typeName: "AddInData",
+      entity: {
+        addInId: this.addInId,
+        details: detailsStr,
+        groups: [{ id: AUDIT_GROUP_ID }],
+      },
+    });
+  }
+
+  async getAuditRecords(bookingId: string): Promise<OpexBookingAudit[]> {
+    const records = await this.apiCall<AddInDataRecord[]>("Get", {
+      typeName: "AddInData",
+      search: { addInId: this.addInId },
+    });
+    return (records || [])
+      .map(r => deserializeAudit(r.details))
+      .filter(a => a.booking_id === bookingId)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }
+
   isLive(): boolean {
     return true;
+  }
+
+  async getApprovers(): Promise<ResolvedUser[]> {
+    const users = await this.apiCall<RawMyGeotabUser[]>("Get", {
+      typeName: "User",
+      resultsLimit: 1000,
+    });
+    return (users || [])
+      .filter(u => u.role === "APPROVER")
+      .map(mapLiveUser);
   }
 }
 

@@ -126,6 +126,11 @@ export class MyGeotabBookingDataProvider implements BookingDataProvider {
     return users.map(mapLiveUser);
   }
 
+  async getApprovers(): Promise<ResolvedUser[]> {
+    const users = await this.getUsers();
+    return users.filter(u => u.roles.includes("APPROVER"));
+  }
+
   async getGroups(): Promise<MyGeotabGroup[]> {
     const groups = await this.apiCall<RawMyGeotabGroup[]>("Get", {
       typeName: "Group",

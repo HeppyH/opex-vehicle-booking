@@ -14,7 +14,7 @@ OPEX Vehicle Booking Management (VBM)
 ```
 MyGeotab Portal (tenant: opex_trial)
   └── Custom Page Add-In (React/Vite)
-        └── https://heppyh.github.io/opex-vehicle-booking/  (GitHub Pages)
+        └── https://heppyh.github.io/opexassetbooking/  (GitHub Pages)
               └── HTTPS API calls
                     └── https://opex-vbm-api.<account-subdomain>.workers.dev  (Cloudflare Worker)
                           ├── Hono API (opex-vbm-api)
@@ -24,7 +24,7 @@ MyGeotab Portal (tenant: opex_trial)
                           └── PostgreSQL via Cloudflare Hyperdrive
 ```
 
-- **Frontend URL:** `https://heppyh.github.io/opex-vehicle-booking/` — GitHub Pages.
+- **Frontend URL:** `https://heppyh.github.io/opexassetbooking/` — GitHub Pages.
 - **API URL pattern:** `https://opex-vbm-api.<account-subdomain>.workers.dev` — Cloudflare Worker on `workers.dev`.
 - **Database:** PostgreSQL, provisioned separately under a personal account (recommended: Neon). Hyperdrive is the connection path/pooler, **not** the database. D1 is **not** a substitute without explicit approval.
 - **Integration:** MyGeotab API against `opex_trial`; real Device/User/Trip/LogRecord data only, no fabricated records.
@@ -64,7 +64,7 @@ If any of these already exist, reuse them. Create only what is missing and only 
 - `scripts/migrate.mjs` — local migration runner (requires `DATABASE_URL`).
 - `apps/api/wrangler.toml` — Worker `opex-vbm-api`, vars `APP_ENV=development`, `ALLOWED_ORIGIN=https://heppyh.github.io`, `GEOTAB_DATABASE=opex_trial`; Hyperdrive binding commented out (no credentials in file).
 - Frontend `apps/web/` — React/Vite Add-In shell, MyGeotab lifecycle (`initialize`/`focus`/`blur`), `VITE_GEOTAB_DATABASE=opex_trial`, `VITE_API_BASE_URL` optional, "Backend not connected" fail-safe, no dummy data.
-- `geotab/opex-vbm-config.json` — Add-In JSON pointing at `https://HeppyH.github.io/opex-vehicle-booking/`.
+- `geotab/opex-vbm-config.json` — Add-In JSON pointing at `https://HeppyH.github.io/opexassetbooking/`.
 - GitHub Pages workflow `.github/workflows/deploy-pages.yml` — builds frontend, creates `404.html` SPA fallback, deploys to Pages.
 
 ### What is incomplete / missing

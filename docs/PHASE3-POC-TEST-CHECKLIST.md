@@ -1,6 +1,6 @@
 # Phase 3 POC Test Checklist — MyGeotab AddInData Booking Storage
 
-**Repository:** `opex-vehicle-booking`  
+**Repository:** `opexassetbooking`  
 **Target database:** `opex_trial`  
 **Branch:** `feature/vehicle-booking-phase-2` (uncommitted)  
 **Storage:** MyGeotab AddInData only (no PostgreSQL, no Cloudflare, no localStorage permanent storage)  
@@ -11,7 +11,7 @@
 
 - [ ] MyGeotab Add-In registered in database `opex_trial`
 - [ ] AddInId obtained from MyGeotab registration
-- [ ] Add-In loaded in MyGeotab (custom page pointing to `https://heppyh.github.io/opex-vehicle-booking/`)
+- [ ] Add-In loaded in MyGeotab (custom page pointing to `https://heppyh.github.io/opexassetbooking/`)
 
 ## Phase 3.5 — DEMO / LIVE Mode
 

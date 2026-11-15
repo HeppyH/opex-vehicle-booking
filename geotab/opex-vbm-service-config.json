@@ -1,0 +1,11 @@
+{
+  "name": "OPEX Asset Booking – Notification Service",
+  "supportEmail": "REPLACE_WITH_PERSONAL_SUPPORT_EMAIL",
+  "version": "0.1.0",
+  "items": [
+    {
+      "serviceName": "OPEX Notification Service",
+      "serviceSrc": "https://heppyh.github.io/opexassetbooking/serviceAddin.js"
+    }
+  ]
+}
